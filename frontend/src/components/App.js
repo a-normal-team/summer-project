@@ -1,12 +1,12 @@
 import React from 'react';
+import Welcome from './Welcome';
 
 function App() {
-    return (
-        <div>
-            <h1>Welcome to the Demo Web Project!</h1>
-            <p>This is a simple frontend application.</p>
-        </div>
-    );
+  return (
+    <div className="app">
+      <Welcome />
+    </div>
+  );
 }
 
 export default App;
