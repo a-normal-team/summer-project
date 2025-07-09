@@ -1,0 +1,24 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Backend",
+			"type": "node",
+			"request": "launch",
+			"program": "${workspaceFolder}/backend/src/server.js",
+			"env": {
+				"PORT": "3000"
+			},
+			"outFiles": [
+				"${workspaceFolder}/backend/**/*.js"
+			]
+		},
+		{
+			"name": "Run Frontend",
+			"type": "chrome",
+			"request": "launch",
+			"url": "http://localhost:3001",
+			"webRoot": "${workspaceFolder}/frontend/src"
+		}
+	]
+}
