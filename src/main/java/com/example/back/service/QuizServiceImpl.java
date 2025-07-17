@@ -1,5 +1,6 @@
 package com.example.back.service;
 
+import com.example.back.document.ContentChunk;
 import com.example.back.dto.QuizAnswerRequest;
 import com.example.back.dto.QuizDto;
 import com.example.back.dto.QuizGenerateRequest;
@@ -7,15 +8,19 @@ import com.example.back.entity.Presentation;
 import com.example.back.entity.Quiz;
 import com.example.back.entity.QuizAnswer;
 import com.example.back.entity.User;
+import com.example.back.mongorepository.ContentChunkRepository;
 import com.example.back.repository.PresentationRepository;
 import com.example.back.repository.QuizAnswerRepository;
 import com.example.back.repository.QuizRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -31,8 +36,13 @@ public class QuizServiceImpl implements QuizService {
     @Autowired
     private QuizAnswerRepository quizAnswerRepository;
 
-    // @Autowired
-    // private AiService aiService; // Will be created later for AI quiz generation
+    @Autowired
+    private GeminiService geminiService; // 注入 GeminiService
+
+    @Autowired
+    private ContentChunkRepository contentChunkRepository; // 注入 ContentChunkRepository
+
+    private final ObjectMapper objectMapper = new ObjectMapper(); // 用于 JSON 解析
 
     @Override
     @Transactional
@@ -47,17 +57,64 @@ public class QuizServiceImpl implements QuizService {
             throw new RuntimeException("Unauthorized to create quiz for this presentation"); // Custom exception
         }
 
-        // Call AI service to generate quiz based on contextText
-        // For now, create a dummy quiz
-        Quiz quiz = new Quiz();
-        quiz.setPresentation(presentation);
-        quiz.setQuestion("Generated Question: " + request.getContextText().substring(0, Math.min(request.getContextText().length(), 50)) + "...");
-        quiz.setOptions(null); // AI will generate options
-        quiz.setCorrectAnswer(null); // AI will provide correct answer
-        quiz.setExplanation(null); // AI will provide explanation
-        quiz.setStatus(Quiz.Status.DRAFT); // Initial status
-        quiz.setCreatedAt(LocalDateTime.now());
-        return quizRepository.save(quiz);
+        // 1. 获取演示文稿的所有内容块并拼接成完整文本
+        List<ContentChunk> contentChunks = contentChunkRepository.findByPresentationId(request.getPresentationId());
+        String combinedText = contentChunks.stream()
+                .map(ContentChunk::getTextContent)
+                .collect(Collectors.joining("\n\n")); // 使用双换行符分隔不同内容块
+
+        if (combinedText.isEmpty()) {
+            throw new RuntimeException("No content found for the presentation to generate quizzes.");
+        }
+
+        // 2. 定义一个合适的 prompt，指导 Gemini 模型生成测验问题
+        String prompt = "根据以下演示文稿内容，生成5道多项选择题。每道题包含问题、四个选项（A, B, C, D）、正确答案和解释。请以 JSON 数组的格式返回，每个对象代表一个测验问题。JSON 格式如下：\n" +
+                        "[\n" +
+                        "  {\n" +
+                        "    \"question\": \"问题?\",\n" +
+                        "    \"options\": {\n" +
+                        "      \"A\": \"选项A\",\n" +
+                        "      \"B\": \"选项B\",\n" +
+                        "      \"C\": \"选项C\",\n" +
+                        "      \"D\": \"选项D\"\n" +
+                        "    },\n" +
+                        "    \"correctAnswer\": \"A\",\n" +
+                        "    \"explanation\": \"解释\"\n" +
+                        "  }\n" +
+                        "]";
+
+        // 3. 调用 GeminiService 生成测验问题
+        String geminiResponse = geminiService.processTextWithGemini(combinedText, prompt);
+
+        // 4. 解析 Gemini 返回的 JSON 字符串
+        List<Quiz> generatedQuizzes;
+        try {
+            // 使用 ObjectMapper 将 JSON 字符串解析为 List<Map<String, Object>>
+            List<Map<String, Object>> quizMaps = objectMapper.readValue(geminiResponse, List.class);
+
+            generatedQuizzes = quizMaps.stream().map(quizMap -> {
+                Quiz quiz = new Quiz();
+                quiz.setPresentation(presentation);
+                quiz.setQuestion((String) quizMap.get("question"));
+                // options 是 Map<String, String> 类型
+                quiz.setOptions((Map<String, String>) quizMap.get("options"));
+                quiz.setCorrectAnswer((String) quizMap.get("correctAnswer"));
+                quiz.setExplanation((String) quizMap.get("explanation"));
+                quiz.setStatus(Quiz.Status.DRAFT); // 初始状态为草稿
+                quiz.setCreatedAt(LocalDateTime.now());
+                return quiz;
+            }).collect(Collectors.toList());
+
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to parse Gemini API response: " + e.getMessage(), e);
+        }
+
+        // 5. 保存生成的 Quiz 实体到数据库
+        quizRepository.saveAll(generatedQuizzes);
+
+        // 返回第一个生成的测验，或者可以考虑返回一个包含所有生成测验的列表
+        // 这里为了兼容 createQuiz 的返回类型，暂时返回第一个。如果需要返回多个，需要修改接口定义。
+        return generatedQuizzes.isEmpty() ? null : generatedQuizzes.get(0);
     }
 
     @Override
@@ -144,7 +201,7 @@ public class QuizServiceImpl implements QuizService {
         quizAnswer.setQuiz(quiz);
         quizAnswer.setUser(currentUser);
         quizAnswer.setSelectedAnswer(request.getSelectedAnswer());
-        quizAnswer.setCorrect(request.getSelectedAnswer().equals(quiz.getCorrectAnswer()));
+        quizAnswer.setIsCorrect(request.getSelectedAnswer().equals(quiz.getCorrectAnswer()));
         quizAnswer.setAnsweredAt(LocalDateTime.now());
         quizAnswerRepository.save(quizAnswer);
     }
