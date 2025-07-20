@@ -21,13 +21,13 @@ def submit_feedback(presentation_id):
         return jsonify({"msg": "Presentation not found"}), 404
     
     # Ensure listener is associated with this presentation
-    listener = User.query.get(current_user_id)
+    listener = User.query.get(int(current_user_id))
     if listener not in presentation.listeners:
         return jsonify({"msg": "You are not a listener for this presentation"}), 403
 
     new_feedback = Feedback(
         presentation_id=presentation_id,
-        user_id=current_user_id,
+        user_id=int(current_user_id),
         feedback_type=feedback_type
     )
     db.session.add(new_feedback)
@@ -39,14 +39,14 @@ def submit_feedback(presentation_id):
 @jwt_required()
 def get_feedback_stats(presentation_id):
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = User.query.get(int(current_user_id))
     presentation = Presentation.query.get(presentation_id)
 
     if not presentation:
         return jsonify({"msg": "Presentation not found"}), 404
     
     # Only speaker of the presentation or organizer can view feedback stats
-    if not (user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == current_user_id)):
+    if not (user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == int(current_user_id))):
         return jsonify({"msg": "Unauthorized to view feedback statistics"}), 403
 
     feedbacks = Feedback.query.filter_by(presentation_id=presentation_id).all()

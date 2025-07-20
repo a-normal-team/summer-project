@@ -2,8 +2,9 @@ from functools import wraps
 from flask import jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import User
-import PyPDF2 # Add this import
-from io import BytesIO # Add this import
+import PyPDF2
+from io import BytesIO
+from docx import Document # Import Document for docx files
 
 def role_required(role_name):
     def wrapper(fn):
@@ -40,5 +41,14 @@ def extract_text_from_file(file_content_bytes, file_type):
             return file_content_bytes.decode('utf-8')
         except UnicodeDecodeError:
             return file_content_bytes.decode('latin-1') # Fallback for other encodings
+    elif file_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': # .docx files
+        try:
+            doc = Document(BytesIO(file_content_bytes))
+            text = ""
+            for paragraph in doc.paragraphs:
+                text += paragraph.text + "\n"
+            return text
+        except Exception as e:
+            raise ValueError(f"Error extracting text from DOCX: {e}")
     else:
         raise ValueError(f"Unsupported file type for text extraction: {file_type}")

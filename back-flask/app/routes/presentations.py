@@ -98,6 +98,33 @@ def get_presentation(presentation_id):
         "listeners": [{"id": l.id, "username": l.username} for l in presentation.listeners]
     }), 200
 
+# Update Presentation (Speaker or Organizer only)
+@presentations_bp.route('/<int:presentation_id>', methods=['PUT'])
+@jwt_required()
+def update_presentation(presentation_id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    presentation = Presentation.query.get(presentation_id)
+    if not presentation:
+        return jsonify({"msg": "Presentation not found"}), 404
+
+    # Only the speaker of the presentation or an organizer can update it
+    if not (user.id == presentation.speaker_id or user.role.name == 'organizer'):
+        return jsonify({"msg": "Unauthorized to update this presentation"}), 403
+
+    data = request.get_json()
+    title = data.get('title')
+    description = data.get('description')
+
+    if title:
+        presentation.title = title
+    if description:
+        presentation.description = description
+    
+    db.session.commit()
+    return jsonify({"msg": "Presentation updated successfully"}), 200
+
 # Add Listener to Presentation (Organizer or Speaker)
 @presentations_bp.route('/<int:presentation_id>/add_listener', methods=['POST'])
 @jwt_required()
@@ -117,7 +144,7 @@ def add_listener_to_presentation(presentation_id):
         return jsonify({"msg": "Listener not found or not a listener role"}), 404
     
     # Only organizer or the speaker of the presentation can add listeners
-    if user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == current_user_id):
+    if user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == int(current_user_id)):
         if listener not in presentation.listeners:
             presentation.listeners.append(listener)
             db.session.commit()
@@ -144,10 +171,29 @@ def remove_listener_from_presentation(presentation_id):
         return jsonify({"msg": "Listener not found or not a listener role"}), 404
     
     # Only organizer or the speaker of the presentation can remove listeners
-    if user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == current_user_id):
+    if user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == int(current_user_id)):
         if listener in presentation.listeners:
             presentation.listeners.remove(listener)
             db.session.commit()
             return jsonify({"msg": "Listener removed from presentation successfully"}), 200
         return jsonify({"msg": "Listener not associated with this presentation"}), 409
     return jsonify({"msg": "Unauthorized to remove listener from this presentation"}), 403
+
+# Delete Presentation (Speaker or Organizer only)
+@presentations_bp.route('/<int:presentation_id>', methods=['DELETE'])
+@jwt_required()
+def delete_presentation(presentation_id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    presentation = Presentation.query.get(presentation_id)
+    if not presentation:
+        return jsonify({"msg": "Presentation not found"}), 404
+
+    # Only the speaker of the presentation or an organizer can delete it
+    if not (user.id == presentation.speaker_id or user.role.name == 'organizer'):
+        return jsonify({"msg": "Unauthorized to delete this presentation"}), 403
+
+    db.session.delete(presentation)
+    db.session.commit()
+    return jsonify({"msg": "Presentation deleted successfully"}), 200

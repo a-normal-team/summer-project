@@ -6,23 +6,30 @@ from flask_jwt_extended import JWTManager
 import os
 import boto3 # Add this import
 from flask_socketio import SocketIO # Add this import
+from datetime import timedelta # Add this import
 
-db = SQLAlchemy()
+# Move model import here to ensure models are loaded before db.init_app
+from .models import Role, User, Presentation, Question, Answer, Feedback, DiscussionComment, File
+
 bcrypt = Bcrypt()
 jwt = JWTManager()
 socketio = SocketIO() # Initialize SocketIO
 
 def create_app():
     app = Flask(__name__)
+    from .models import db # Import db from models to avoid circular import
+    db.init_app(app) # Initialize db with the app
 
     # Configuration
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_secret_key')
     app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'your_jwt_secret_key')
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24) # Set token expiration to 24 hours
 
     # LLM API Configuration
     app.config['LLM_API_URL'] = os.environ.get('LLM_API_URL')
+    app.config['DEEPSEEK_API_KEY'] = os.environ.get('DEEPSEEK_API_KEY') # Add this line
 
     # S3/R2 Configuration
     app.config['S3_ENDPOINT_URL'] = os.environ.get('S3_ENDPOINT_URL')
@@ -46,21 +53,6 @@ def create_app():
     bcrypt.init_app(app)
     jwt.init_app(app)
     socketio.init_app(app, cors_allowed_origins="*") # Initialize SocketIO with app
-
-    from .models import Role, User, Presentation, Question, Answer, Feedback, DiscussionComment, File # Add File model
-
-    # Database initialization
-    @app.before_first_request
-    def create_tables():
-        db.create_all()
-        # Initialize roles if they don't exist
-        if not Role.query.filter_by(name='organizer').first():
-            db.session.add(Role(name='organizer'))
-        if not Role.query.filter_by(name='speaker').first():
-            db.session.add(Role(name='speaker'))
-        if not Role.query.filter_by(name='listener').first():
-            db.session.add(Role(name='listener'))
-        db.session.commit()
 
     # Register blueprints
     from .routes.auth import auth_bp

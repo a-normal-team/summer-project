@@ -27,7 +27,7 @@ def add_comment(question_id):
 
     new_comment = DiscussionComment(
         question_id=question_id,
-        user_id=current_user_id,
+        user_id=int(current_user_id),
         comment_text=comment_text,
         parent_comment_id=parent_comment_id
     )

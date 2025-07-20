@@ -38,7 +38,7 @@ def login():
 
     user = User.query.filter_by(username=username).first()
     if user and bcrypt.check_password_hash(user.password_hash, password):
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id)) # Convert user.id to string
         return jsonify(access_token=access_token, user_id=user.id, role=user.role.name), 200
     return jsonify({"msg": "Bad username or password"}), 401
 
@@ -46,7 +46,7 @@ def login():
 @jwt_required()
 def profile():
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = User.query.get(int(current_user_id))
     if user:
         return jsonify({
             "id": user.id,

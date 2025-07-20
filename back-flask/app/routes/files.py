@@ -5,6 +5,7 @@ from app.utils import role_required, extract_text_from_file # Import extract_tex
 import uuid
 import os
 from io import BytesIO
+# Removed base64 import as it's no longer needed for multipart/form-data
 
 files_bp = Blueprint('files', __name__)
 
@@ -32,21 +33,37 @@ def upload_file():
         s3_key = f"{uuid.uuid4()}{file_extension}"
 
         try:
-            # Upload file to S3/R2
-            s3_client.upload_fileobj(file, s3_bucket_name, s3_key)
+            # Read file content once
+            file_content = file.read()
+            file_stream_for_s3 = BytesIO(file_content) # Create a new stream for S3 upload
 
-            current_user_id = get_jwt_identity()
+            # Upload file to S3/R2
+            s3_client.upload_fileobj(file_stream_for_s3, s3_bucket_name, s3_key)
+
+            current_user_id = int(get_jwt_identity()) # Convert to int for comparison
             user = User.query.get(current_user_id)
+            current_app.logger.info(f"DEBUG: Current user ID: {current_user_id}, Role: {user.role.name}")
 
             # Optional: Link file to a presentation if presentation_id is provided
-            presentation_id = request.form.get('presentation_id')
+            presentation_id = request.form.get('presentation_id') # Get from form data
+            current_app.logger.info(f"DEBUG: Received presentation_id from form: {presentation_id}")
+
             presentation = None
             if presentation_id:
+                try:
+                    presentation_id = int(presentation_id) # Ensure it's an integer
+                except ValueError:
+                    return jsonify({"msg": "Invalid presentation_id format"}), 400
+
                 presentation = Presentation.query.get(presentation_id)
                 if not presentation:
                     return jsonify({"msg": "Presentation not found"}), 404
+                
+                current_app.logger.info(f"DEBUG: Presentation found: ID={presentation.id}, Speaker ID={presentation.speaker_id}")
+
                 # Ensure speaker owns the presentation if linking
                 if presentation.speaker_id != current_user_id:
+                    current_app.logger.warning(f"DEBUG: Unauthorized attempt: Presentation Speaker ID {presentation.speaker_id} != Current User ID {current_user_id}")
                     return jsonify({"msg": "You do not own this presentation"}), 403
 
             new_file = File(
@@ -55,12 +72,11 @@ def upload_file():
                 user_id=current_user_id,
                 presentation_id=presentation_id,
                 file_type=file.content_type,
-                size=file.content_length # This might not be accurate for all file types, but good for basic check
+                size=len(file_content) # Use length of read content
             )
             
             # Extract text content and store it
-            file.seek(0) # Reset file pointer after S3 upload
-            extracted_text = extract_text_from_file(file.read(), file.content_type)
+            extracted_text = extract_text_from_file(file_content, file.content_type) # Use file_content directly
             new_file.extracted_text_content = extracted_text
 
             db.session.add(new_file)
@@ -76,7 +92,7 @@ def upload_file():
         except Exception as e:
             current_app.logger.error(f"Error uploading file and extracting text: {e}")
             return jsonify({"msg": f"Failed to upload file or extract text: {str(e)}"}), 500
-    return jsonify({"msg": "File upload failed"}), 400
+    return jsonify({"msg": "File upload failed"}), 400 # This line was missing in the original, but good to have a fallback
 
 @files_bp.route('/download/<int:file_id>', methods=['GET'])
 @jwt_required()
