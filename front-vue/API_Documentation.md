@@ -57,10 +57,30 @@
     }
     ```
 
+### 3. 获取用户资料
+*   **URL**: `/auth/profile`
+*   **方法**: `GET`
+*   **描述**: 获取当前登录用户的资料。
+*   **权限**: 需要有效的 JWT 访问令牌。
+*   **响应体示例 (成功)**:
+    ```json
+    {
+        "id": 1,
+        "username": "testuser",
+        "role": "listener"
+    }
+    ```
+*   **响应体示例 (失败 - 用户未找到)**:
+    ```json
+    {
+        "msg": "User not found"
+    }
+    ```
+
 ## 演示文稿 (Presentations)
 
 ### 1. 创建演示文稿
-*   **URL**: `/presentations/create`
+*   **URL**: `/presentations/`
 *   **方法**: `POST`
 *   **描述**: 演讲者创建新的演示文稿。
 *   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker`。
@@ -123,7 +143,7 @@
 *   **URL**: `/presentations/<int:presentation_id>`
 *   **方法**: `PUT`
 *   **描述**: 演讲者更新指定演示文稿的信息。
-*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker` 且是该演示文稿的演讲者。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker` (该演示文稿的演讲者) 或 `organizer`。
 *   **请求体示例**:
     ```json
     {
@@ -154,7 +174,7 @@
 *   **URL**: `/presentations/<int:presentation_id>`
 *   **方法**: `DELETE`
 *   **描述**: 演讲者删除指定演示文稿。
-*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker` 且是该演示文稿的演讲者。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker` (该演示文稿的演讲者) 或 `organizer`。
 *   **响应体示例 (成功)**:
     ```json
     {
@@ -171,6 +191,90 @@
     ```json
     {
         "msg": "Unauthorized to delete this presentation"
+    }
+    ```
+
+### 6. 添加听众到演示文稿
+*   **URL**: `/presentations/<int:presentation_id>/add_listener`
+*   **方法**: `POST`
+*   **描述**: 组织者或演讲者将听众添加到指定演示文稿。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `organizer` 或 `speaker` (该演示文稿的创建者)。
+*   **请求体示例**:
+    ```json
+    {
+        "listener_id": 2 // 要添加的听众用户 ID
+    }
+    ```
+*   **响应体示例 (成功)**:
+    ```json
+    {
+        "msg": "Listener added to presentation successfully"
+    }
+    ```
+*   **响应体示例 (失败 - 演示文稿未找到)**:
+    ```json
+    {
+        "msg": "Presentation not found"
+    }
+    ```
+*   **响应体示例 (失败 - 听众未找到或角色不符)**:
+    ```json
+    {
+        "msg": "Listener not found or not a listener role"
+    }
+    ```
+*   **响应体示例 (失败 - 已关联)**:
+    ```json
+    {
+        "msg": "Listener already associated with this presentation"
+    }
+    ```
+*   **响应体示例 (失败 - 未授权)**:
+    ```json
+    {
+        "msg": "Unauthorized to add listener to this presentation"
+    }
+    ```
+
+### 7. 从演示文稿中移除听众
+*   **URL**: `/presentations/<int:presentation_id>/remove_listener`
+*   **方法**: `POST`
+*   **描述**: 组织者或演讲者从指定演示文稿中移除听众。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `organizer` 或 `speaker` (该演示文稿的创建者)。
+*   **请求体示例**:
+    ```json
+    {
+        "listener_id": 2 // 要移除的听众用户 ID
+    }
+    ```
+*   **响应体示例 (成功)**:
+    ```json
+    {
+        "msg": "Listener removed from presentation successfully"
+    }
+    ```
+*   **响应体示例 (失败 - 演示文稿未找到)**:
+    ```json
+    {
+        "msg": "Presentation not found"
+    }
+    ```
+*   **响应体示例 (失败 - 听众未找到或角色不符)**:
+    ```json
+    {
+        "msg": "Listener not found or not a listener role"
+    }
+    ```
+*   **响应体示例 (失败 - 未关联)**:
+    ```json
+    {
+        "msg": "Listener not associated with this presentation"
+    }
+    ```
+*   **响应体示例 (失败 - 未授权)**:
+    ```json
+    {
+        "msg": "Unauthorized to remove listener from this presentation"
     }
     ```
 
@@ -227,7 +331,7 @@
 *   **请求体示例**:
     ```json
     {
-        "answer_text": "微框架"
+        "answer_text": "A"
     }
     ```
 *   **响应体示例 (成功 - 答案正确)**:
@@ -257,7 +361,7 @@
 *   **URL**: `/quiz/questions/<int:question_id>/deactivate`
 *   **方法**: `POST`
 *   **描述**: 演讲者停用指定题目，使其不再接受答案。
-*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker` 且是该题目所属演讲的演讲者。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker` (该题目所属演讲的演讲者) 或 `organizer`。
 *   **响应体示例 (成功)**:
     ```json
     {
@@ -351,6 +455,74 @@
                 "accuracy_rate": "100.00%"
             }
         ]
+    }
+    ```
+
+### 8. 从文件生成题目
+*   **URL**: `/quiz/generate_questions`
+*   **方法**: `POST`
+*   **描述**: 演讲者根据上传的文件内容生成测验题目。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker`。
+*   **请求体示例**:
+    ```json
+    {
+        "file_id": 1,          // 要生成题目的文件 ID
+        "presentation_id": 1   // 题目将关联的演讲 ID
+    }
+    ```
+*   **响应体示例 (成功)**:
+    ```json
+    {
+        "msg": "Successfully generated 3 questions",
+        "question_ids": [1, 2, 3]
+    }
+    ```
+*   **响应体示例 (失败 - 参数缺失)**:
+    ```json
+    {
+        "msg": "file_id and presentation_id are required"
+    }
+    ```
+*   **响应体示例 (失败 - 文件未找到)**:
+    ```json
+    {
+        "msg": "File not found"
+    }
+    ```
+*   **响应体示例 (失败 - 未授权使用文件)**:
+    ```json
+    {
+        "msg": "Unauthorized to use this file"
+    }
+    ```
+*   **响应体示例 (失败 - 演讲未找到)**:
+    ```json
+    {
+        "msg": "Presentation not found"
+    }
+    ```
+*   **响应体示例 (失败 - 未授权演讲)**:
+    ```json
+    {
+        "msg": "You are not the speaker of this presentation"
+    }
+    ```
+*   **响应体示例 (失败 - LLM API 未配置)**:
+    ```json
+    {
+        "msg": "LLM API URL not configured"
+    }
+    ```
+*   **响应体示例 (失败 - 文件无提取文本)**:
+    ```json
+    {
+        "msg": "No extracted text content found for this file"
+    }
+    ```
+*   **响应体示例 (失败 - LLM 生成失败)**:
+    ```json
+    {
+        "msg": "Failed to generate questions from LLM: <error_details>"
     }
     ```
 
@@ -599,32 +771,6 @@
     ```json
     {
         "msg": "Unauthorized to view files for this presentation"
-    }
-    ```
-
-### 4. 获取文件内容 (提取的文本)
-*   **URL**: `/files/<int:file_id>/content`
-*   **方法**: `GET`
-*   **描述**: 获取指定文件提取的文本内容。
-*   **权限**: 需要有效的 JWT 访问令牌，且用户是该文件的上传者、该文件所属演讲的演讲者、或 `organizer`。
-*   **响应体示例 (成功)**:
-    ```json
-    {
-        "file_id": 1,
-        "filename": "your_file.pdf",
-        "extracted_text_content": "这是从 PDF 文件中提取的文本内容..."
-    }
-    ```
-*   **响应体示例 (失败 - 文件未找到)**:
-    ```json
-    {
-        "msg": "File not found"
-    }
-    ```
-*   **响应体示例 (失败 - 未授权)**:
-    ```json
-    {
-        "msg": "Unauthorized to view this file content"
     }
     ```
 
