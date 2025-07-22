@@ -254,6 +254,19 @@ const saveQuiz = () => {
 </script>
 
 <style scoped>
+.sub-dashboard-section {
+  padding: 20px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  height: 100%; /* 填满父容器高度 */
+  width: 100%; /* 填满父容器宽度 */
+  overflow-y: auto; /* 允许内容垂直滚动 */
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* 让组件填满父容器的剩余空间 */
+}
+
 .quiz-generator {
   display: flex;
   flex-direction: column;

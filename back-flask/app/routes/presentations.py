@@ -132,19 +132,27 @@ def add_listener_to_presentation(presentation_id):
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id) # Used for role check
 
-    data = request.get_json()
-    listener_id = data.get('listener_id')
-
     presentation = Presentation.query.get(presentation_id)
-    listener = User.query.get(listener_id)
-
     if not presentation:
         return jsonify({"msg": "Presentation not found"}), 404
-    if not listener or listener.role.name != 'listener':
-        return jsonify({"msg": "Listener not found or not a listener role"}), 404
+
+    # 允许三种情况：1.组织者添加任何听众；2.演讲者添加任何听众；3.听众添加自己
+    if user.role.name == 'listener':
+        # 听众只能添加自己
+        listener = user  # 使用当前用户作为听众
+    else:
+        # 组织者或演讲者可以添加指定的听众
+        data = request.get_json()
+        listener_id = data.get('listener_id')
+        if not listener_id:
+            return jsonify({"msg": "Listener ID is required"}), 400
+        
+        listener = User.query.get(listener_id)
+        if not listener or listener.role.name != 'listener':
+            return jsonify({"msg": "Listener not found or not a listener role"}), 404
     
-    # Only organizer or the speaker of the presentation can add listeners
-    if user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == int(current_user_id)):
+    # 权限检查：组织者可以添加任何听众，演讲者只能添加到自己的演讲，听众只能添加自己
+    if user.role.name == 'organizer' or (user.role.name == 'speaker' and presentation.speaker_id == int(current_user_id)) or (user.role.name == 'listener' and user.id == listener.id):
         if listener not in presentation.listeners:
             presentation.listeners.append(listener)
             db.session.commit()

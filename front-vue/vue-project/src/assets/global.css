@@ -30,7 +30,7 @@ body {
         -30vmax -30vmax,
         50vmax 50vmax;
     background-repeat: no-repeat;
-    animation: 8s movement linear infinite;
+    animation: 7s movement linear infinite;
 }
 
 body::after {
@@ -103,4 +103,18 @@ body::after {
             30vmax 40vmax,
             0vmax 0vmax;
     }
+}
+
+/* 通用仪表盘子页面样式 */
+.sub-dashboard-section {
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 确保表单按钮在底部可见 */
+.button-container {
+    margin-top: auto;
+    padding-top: 20px;
 }

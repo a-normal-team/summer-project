@@ -3,6 +3,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager
+from flask_cors import CORS  # 导入CORS
 import os
 import boto3 # Add this import
 from flask_socketio import SocketIO # Add this import
@@ -19,6 +20,16 @@ def create_app():
     app = Flask(__name__)
     from .models import db # Import db from models to avoid circular import
     db.init_app(app) # Initialize db with the app
+    
+    # 配置CORS - 确保前端可以正常访问
+    cors_config = {
+        'origins': ['*'],  # 允许所有来源
+        'methods': ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],  # 允许所有常用HTTP方法
+        'allow_headers': ['*'],  # 允许所有请求头
+        'expose_headers': ['Content-Type', 'Authorization'],  # 允许前端访问这些响应头
+        'supports_credentials': False  # 默认不携带凭证(cookies等)
+    }
+    CORS(app, **cors_config)  # 使用配置初始化CORS
 
     # Configuration
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'

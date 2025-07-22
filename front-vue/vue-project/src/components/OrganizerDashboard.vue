@@ -8,10 +8,7 @@
         <nav>
           <ul>
             <li>
-              <router-link to="/organizer/dashboard/presentations">我的演讲</router-link>
-            </li>
-            <li>
-              <router-link to="/organizer/dashboard/create-presentation">创建新演讲</router-link>
+              <router-link to="/organizer/dashboard/presentations">全部演讲</router-link>
             </li>
             <li>
               <router-link to="/organizer/dashboard/overall-stats">整体统计</router-link>
@@ -48,7 +45,8 @@ onMounted(() => {
   font-family: 'Montserrat', sans-serif;
   padding: 20px;
   width: 800px; /* 固定宽度 */
-  height: 500px; /* 按照5:8的宽高比（宽:高 = 8:5）设置高度 */
+  height: 80vh; /* 使用视窗高度单位而不是固定像素，提供更灵活的高度 */
+  min-height: 500px; /* 最小高度确保在小屏幕上也有足够空间 */
   margin: 50px auto;
   background-color: #fff;
   border-radius: 10px;
@@ -75,7 +73,10 @@ p {
   display: flex;
   gap: 20px;
   flex-grow: 1; /* 填充剩余空间 */
-  overflow: hidden; /* 隐藏溢出内容，防止子元素撑开 */
+  overflow: hidden; /* 隐藏容器本身的溢出，但允许子元素滚动 */
+  height: calc(100% - 100px); /* 减去标题和欢迎文本的高度 */
+  width: 100%; /* 确保占据全部可用宽度 */
+  min-height: 0; /* 关键属性：确保flex子项可以正确计算滚动区域 */
 }
 
 .sidebar {
@@ -114,10 +115,16 @@ p {
 
 .main-content {
   flex-grow: 1;
+  flex-basis: 0; /* 设置基准值为0，确保flex-grow能正确工作 */
+  width: 0; /* 设置初始宽度为0，让flex-grow控制实际宽度 */
   padding: 20px;
   background-color: #fff;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   overflow-y: auto; /* 允许垂直滚动 */
+  height: 100%; /* 填满父容器高度 */
+  display: flex; /* 确保子组件能正确填充空间 */
+  min-height: 0; /* 关键属性：确保flex子项可以正确计算滚动区域 */
+  position: relative; /* 为绝对定位子元素提供参考 */
 }
 </style>

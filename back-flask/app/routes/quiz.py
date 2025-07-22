@@ -235,15 +235,28 @@ def _get_listener_report_data(presentation_id, user_id):
         "question_details": question_details
     }
 
-# Get Listener's Report for a Presentation (Listener/Organizer) - Public API Endpoint
+# Get Listener's Report for a Presentation (Listener/Organizer/Speaker) - Public API Endpoint
 @quiz_bp.route('/presentations/<int:presentation_id>/report/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_listener_report(presentation_id, user_id):
     current_user_id = get_jwt_identity()
     requester = User.query.get(current_user_id)
+    presentation = Presentation.query.get(presentation_id)
     
-    # Listener can only view their own report, Organizer can view any listener's report
-    if not (requester.role.name == 'organizer' or (requester.role.name == 'listener' and requester.id == user_id)):
+    if not presentation:
+        return jsonify({"msg": "Presentation not found"}), 404
+    
+    # 权限检查：
+    # 1. 听众只能查看自己的报告
+    # 2. 组织者可以查看任何听众的报告
+    # 3. 演讲者可以查看与其演讲关联的听众报告
+    is_authorized = (
+        requester.role.name == 'organizer' or 
+        (requester.role.name == 'listener' and requester.id == user_id) or
+        (requester.role.name == 'speaker' and presentation.speaker_id == int(current_user_id))
+    )
+    
+    if not is_authorized:
         return jsonify({"msg": "Unauthorized to view this report"}), 403
 
     report_data = _get_listener_report_data(presentation_id, user_id)
@@ -261,13 +274,20 @@ def get_listener_report(presentation_id, user_id):
 
     return jsonify(report_data), 200
 
-# Get Overall Presentation Statistics (Organizer)
+# Get Overall Presentation Statistics (Organizer and Speaker)
 @quiz_bp.route('/presentations/<int:presentation_id>/overall_stats', methods=['GET'])
-@role_required('organizer')
+@jwt_required() # 改为使用JWT验证，不再限制角色
 def get_overall_presentation_stats(presentation_id):
+    current_user_id = int(get_jwt_identity()) # 获取当前用户ID
+    user = User.query.get(current_user_id)
+    
     presentation = Presentation.query.get(presentation_id)
     if not presentation:
         return jsonify({"msg": "Presentation not found"}), 404
+    
+    # 检查用户是否是organizer或者是该演讲的speaker
+    if user.role.name != 'organizer' and presentation.speaker_id != current_user_id:
+        return jsonify({"msg": "Unauthorized to view presentation statistics"}), 403
 
     total_listeners = presentation.listeners.count() # Count listeners associated with this presentation
     

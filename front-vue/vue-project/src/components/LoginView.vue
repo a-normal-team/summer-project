@@ -1,7 +1,105 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, reactive } from 'vue';
+import { login, register, navigateToDashboard, authState } from '../services/auth';
 
 const container = ref(null);
+const alertMessage = ref('');
+const isSuccess = ref(false);
+const isLoading = ref(false);
+
+// 登录表单数据
+const loginForm = reactive({
+  username: '',
+  password: ''
+});
+
+// 注册表单数据
+const registerForm = reactive({
+  username: '',
+  password: '',
+  confirmPassword: '',
+  role: 'listener' // 默认角色
+});
+
+// 角色选项
+const roleOptions = [
+  { value: 'listener', label: '听众' },
+  { value: 'speaker', label: '演讲者' },
+  { value: 'organizer', label: '组织者' }
+];
+
+// 处理登录
+const handleLogin = async (e) => {
+  e.preventDefault();
+  
+  // 表单验证
+  if (!loginForm.username || !loginForm.password) {
+    showAlert('用户名和密码不能为空', false);
+    return;
+  }
+  
+  isLoading.value = true;
+  try {
+    await login(loginForm);
+    showAlert('登录成功！', true);
+    navigateToDashboard();
+  } catch (error) {
+    if (error.message.includes('无法连接到服务器')) {
+      showAlert('无法连接到后端服务器，请确保服务器正在运行', false);
+    } else {
+      showAlert(`登录失败: ${error.message}`, false);
+    }
+    console.error('登录错误详情:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+// 处理注册
+const handleRegister = async (e) => {
+  e.preventDefault();
+  
+  // 表单验证
+  if (!registerForm.username || !registerForm.password) {
+    showAlert('用户名和密码不能为空', false);
+    return;
+  }
+  
+  if (registerForm.password !== registerForm.confirmPassword) {
+    showAlert('两次输入的密码不一致', false);
+    return;
+  }
+  
+  isLoading.value = true;
+  try {
+    // 提取要发送的数据（不包含confirmPassword字段）
+    const { confirmPassword, ...userData } = registerForm;
+    
+    await register(userData);
+    showAlert('注册成功！请登录', true);
+    container.value.classList.remove("right-panel-active"); // 切换到登录面板
+  } catch (error) {
+    if (error.message.includes('无法连接到服务器')) {
+      showAlert('无法连接到后端服务器，请确保服务器正在运行', false);
+    } else {
+      showAlert(`注册失败: ${error.message}`, false);
+    }
+    console.error('注册错误详情:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+// 显示警告消息
+const showAlert = (message, success) => {
+  alertMessage.value = message;
+  isSuccess.value = success;
+  
+  // 自动清除消息
+  setTimeout(() => {
+    alertMessage.value = '';
+  }, 3000);
+};
 
 onMounted(() => {
   const signUpButton = document.getElementById('signUp');
@@ -22,40 +120,80 @@ onMounted(() => {
 <template>
     <div>
         <h2>欢迎使用Ai-PQ平台</h2>
+        
+        <!-- 警告消息 -->
+        <div v-if="alertMessage" class="alert" :class="{ 'success': isSuccess, 'error': !isSuccess }">
+            {{ alertMessage }}
+        </div>
+        
         <div class="container" id="container" ref="container">
             <div class="form-container sign-up-container">
-                <form action="#">
+                <form @submit="handleRegister">
                     <h1>注册账号</h1>
-                    <span>请输入</span>
-                    <input type="text" placeholder="Name" />
-                    <input type="password" placeholder="Password" />
-                    <input type="password" placeholder="Confirm Password" />
-                    <input type="text" placeholder="Role" />
-                    <button>注册</button>
+                    <span>请输入您的信息</span>
+                    <input 
+                        type="text" 
+                        placeholder="用户名" 
+                        v-model="registerForm.username"
+                        :disabled="isLoading"
+                    />
+                    <input 
+                        type="password" 
+                        placeholder="密码" 
+                        v-model="registerForm.password"
+                        :disabled="isLoading"
+                    />
+                    <input 
+                        type="password" 
+                        placeholder="确认密码" 
+                        v-model="registerForm.confirmPassword"
+                        :disabled="isLoading"
+                    />
+                    <div class="select-container">
+                        <select v-model="registerForm.role" :disabled="isLoading">
+                            <option v-for="option in roleOptions" :key="option.value" :value="option.value">
+                                {{ option.label }}
+                            </option>
+                        </select>
+                    </div>
+                    <button type="submit" :disabled="isLoading">
+                        {{ isLoading ? '处理中...' : '注册' }}
+                    </button>
                 </form>
             </div>
 
             <div class="form-container sign-in-container">
-                <form action="#">
+                <form @submit="handleLogin">
                     <h1>登录</h1>
-                    <input type="text" placeholder="Name" />
-                    <input type="password" placeholder="Password" />
-                    <button>登录</button>
+                    <input 
+                        type="text" 
+                        placeholder="用户名" 
+                        v-model="loginForm.username"
+                        :disabled="isLoading"
+                    />
+                    <input 
+                        type="password" 
+                        placeholder="密码" 
+                        v-model="loginForm.password"
+                        :disabled="isLoading"
+                    />
+                    <button type="submit" :disabled="isLoading">
+                        {{ isLoading ? '处理中...' : '登录' }}
+                    </button>
                 </form>
             </div>
             
-
             <div class="overlay-container">
                 <div class="overlay">
                     <div class="overlay-panel overlay-left">
                         <h1>欢迎回来!</h1>
                         <p>一起学习进步</p>
-                        <button class="ghost" id="signIn">登录</button>
+                        <button class="ghost" id="signIn" type="button">登录</button>
                     </div>
                     <div class="overlay-panel overlay-right">
                         <h1>没有账号？</h1>
                         <p>欢迎注册</p>
-                        <button class="ghost" id="signUp">注册</button>
+                        <button class="ghost" id="signUp" type="button">注册</button>
                     </div>
                 </div>
             </div>
@@ -274,5 +412,83 @@ input:hover {
     margin: 0 5px;
     height: 40px;
     width: 40px;
+}
+
+/* 警告消息样式 */
+.alert {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 20px;
+    border-radius: 5px;
+    color: white;
+    font-weight: bold;
+    z-index: 1000;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    animation: fadeIn 0.3s, fadeOut 0.5s 2.5s;
+    min-width: 300px;
+    text-align: center;
+}
+
+.success {
+    background-color: #4CAF50;
+}
+
+.error {
+    background-color: #F44336;
+}
+
+@keyframes fadeIn {
+    from {opacity: 0;}
+    to {opacity: 1;}
+}
+
+@keyframes fadeOut {
+    from {opacity: 1;}
+    to {opacity: 0;}
+}
+
+/* 下拉选择框样式 */
+.select-container {
+    width: 100%;
+    margin: 8px 0;
+}
+
+select {
+    width: 100%;
+    background-color: #eee;
+    border: none;
+    border-radius: 5px;
+    padding: 12px 15px;
+    color: #333;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%23333' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+}
+
+select:focus,
+select:hover {
+    outline: none;
+    background-color: #fff;
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 禁用状态 */
+button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+input:disabled,
+select:disabled {
+    background-color: #f5f5f5;
+    cursor: not-allowed;
+    opacity: 0.7;
 }
 </style>

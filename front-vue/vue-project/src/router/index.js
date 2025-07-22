@@ -29,11 +29,6 @@ const routes = [
         component: MyPresentations
       },
       {
-        path: 'create-presentation',
-        name: 'CreatePresentation',
-        component: CreatePresentation
-      },
-      {
         path: 'overall-stats',
         name: 'OverallStats',
         component: OverallStats
@@ -54,6 +49,11 @@ const routes = [
     name: 'SpeakerDashboard',
     component: SpeakerDashboard,
     children: [
+      {
+        path: 'create',
+        name: 'PresentationCreate',
+        component: () => import('../components/speaker/PresentationCreate.vue')
+      },
       {
         path: 'presentations',
         name: 'SpeakerPresentations',
@@ -76,7 +76,7 @@ const routes = [
       },
       {
         path: '',
-        redirect: { name: 'SpeakerPresentations' }
+        redirect: { name: 'PresentationCreate' }
       }
     ]
   },
@@ -96,9 +96,31 @@ const routes = [
         component: () => import('../components/listener/ActivePresentation.vue')
       },
       {
-        path: 'history',
-        name: 'PresentationHistory',
-        component: () => import('../components/listener/PresentationHistory.vue')
+        path: 'presentations/:id/questions',
+        name: 'QuizDiscussion',
+        component: () => import('../components/listener/QuizDiscussion.vue')
+      },
+      {
+        path: 'current-questions',
+        redirect: to => {
+          // 如果本地存储中有选中的演讲ID，则重定向到该演讲的问题页面
+          const storedPresentation = localStorage.getItem('selectedPresentation');
+          if (storedPresentation) {
+            try {
+              const parsedPresentation = JSON.parse(storedPresentation);
+              return `/listener/dashboard/presentations/${parsedPresentation.id}/questions`;
+            } catch (err) {
+              console.error('Error parsing selected presentation:', err);
+            }
+          }
+          // 否则重定向到活跃演讲页面
+          return '/listener/dashboard/active';
+        }
+      },
+      {
+        path: 'files',
+        name: 'FileDownload',
+        component: () => import('../components/listener/FileDownload.vue')
       },
       {
         path: 'report',

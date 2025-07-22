@@ -1,7 +1,7 @@
 <template>
   <div class="sub-dashboard-section">
     <h2>创建新演讲</h2>
-    <form @submit.prevent="createPresentation">
+    <form @submit.prevent="createPresentation" class="creation-form">
       <div class="form-group">
         <label for="title">演讲标题:</label>
         <input type="text" id="title" v-model="presentation.title" required />
@@ -10,7 +10,9 @@
         <label for="description">描述:</label>
         <textarea id="description" v-model="presentation.description"></textarea>
       </div>
-      <button type="submit" class="submit-button">创建</button>
+      <div class="button-container">
+        <button type="submit" class="submit-button">创建</button>
+      </div>
     </form>
   </div>
 </template>
@@ -39,6 +41,12 @@ const createPresentation = () => {
   background-color: #fff;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  height: 100%; /* 填满父容器高度 */
+  width: 100%; /* 填满父容器宽度 */
+  overflow-y: auto; /* 允许内容垂直滚动 */
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* 让组件填满父容器的剩余空间 */
 }
 
 h2 {
@@ -72,6 +80,18 @@ textarea {
   resize: vertical;
 }
 
+.creation-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.button-container {
+  margin-top: -10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .submit-button {
   border-radius: 20px;
   border: 1px solid #4dc189;
@@ -84,7 +104,6 @@ textarea {
   text-transform: uppercase;
   transition: transform 80ms ease-in;
   cursor: pointer;
-  margin-top: 10px;
 }
 
 .submit-button:active {

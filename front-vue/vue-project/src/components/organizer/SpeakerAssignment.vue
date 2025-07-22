@@ -1,482 +1,290 @@
 <template>
   <div class="sub-dashboard-section">
-    <div class="speaker-assignment">
-      <div class="header-section">
-        <h2>演讲者分配</h2>
-        <button class="action-button" @click="showInviteModal = true">
-          邀请演讲者
-        </button>
-      </div>
-
-      <div class="assignment-content">
-        <div class="search-section">
-          <div class="search-box">
-            <input 
-              type="text" 
-              v-model="searchQuery"
-              placeholder="搜索演讲者..."
-            />
-            <span class="search-icon">🔍</span>
-          </div>
-          <div class="filter-buttons">
-            <button 
-              v-for="status in filterStatus"
-              :key="status.value"
-              class="filter-button"
-              :class="{ active: currentFilter === status.value }"
-              @click="currentFilter = status.value"
-            >
-              {{ status.label }}
-            </button>
-          </div>
-        </div>
-
-        <div class="speakers-grid">
-          <div 
-            v-for="speaker in filteredSpeakers"
-            :key="speaker.id"
-            class="speaker-card"
-          >
-            <div class="speaker-info">
-              <div class="avatar">
-                {{ speaker.name.charAt(0) }}
-              </div>
-              <div class="details">
-                <h3>{{ speaker.name }}</h3>
-                <p class="email">{{ speaker.email }}</p>
-                <div class="tags">
-                  <span 
-                    v-for="tag in speaker.tags"
-                    :key="tag"
-                    class="tag"
-                  >
-                    {{ tag }}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div class="presentation-info">
-              <div class="presentation-count">
-                <span class="count">{{ speaker.presentationCount }}</span>
-                <span class="label">演讲数</span>
-              </div>
-              <div class="status-badge" :class="speaker.status">
-                {{ getStatusText(speaker.status) }}
-              </div>
-            </div>
-
-            <div class="action-buttons">
-              <button 
-                class="action-button"
-                @click="assignPresentation(speaker)"
-              >
-                分配演讲
-              </button>
-              <button 
-                class="action-button secondary"
-                @click="viewProfile(speaker)"
-              >
-                查看资料
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <h2>演讲者分配</h2>
+    
+    <div v-if="!selectedPresentationId" class="no-selection">
+      <p>请先在"所有演讲"中选择一个演讲进行操作</p>
     </div>
+    
+    <div v-else-if="loading" class="loading-state">
+      <p>加载中...</p>
+    </div>
+    
+    <div v-else-if="error" class="error-state">
+      <p>{{ error }}</p>
+      <button @click="fetchPresentationDetails" class="retry-button">重试</button>
+    </div>
+    
+    <div v-else class="assignment-container">
+      <div class="presentation-header">
+        <h3>{{ presentationDetails?.title }}</h3>
+        <p>当前演讲者: {{ presentationDetails?.speaker || '未分配' }}</p>
+      </div>
+      
+      <div class="search-section">
+        <div class="search-box">
+          <input 
+            type="text" 
+            v-model="searchQuery"
+            placeholder="搜索演讲者..."
+          />
+        </div>
+      </div>
 
-    <!-- 邀请演讲者模态框 -->
-    <div v-if="showInviteModal" class="modal-backdrop" @click="showInviteModal = false">
-      <div class="modal-content" @click.stop>
-        <h3>邀请演讲者</h3>
-        <form @submit.prevent="sendInvite" class="invite-form">
-          <div class="form-group">
-            <label>邮箱地址</label>
-            <input 
-              type="email" 
-              v-model="inviteEmail"
-              placeholder="请输入邮箱地址"
-              required
-            />
+      <div v-if="speakers.length === 0" class="empty-state">
+        <p>暂无可分配的演讲者</p>
+      </div>
+      
+      <div v-else class="speakers-list">
+        <div v-for="speaker in filteredSpeakers" :key="speaker.id" class="speaker-item">
+          <div class="speaker-info">
+            <h3>{{ speaker.username }}</h3>
+            <p>{{ speaker.email }}</p>
           </div>
-          <div class="form-group">
-            <label>邀请消息</label>
-            <textarea 
-              v-model="inviteMessage"
-              placeholder="请输入邀请消息"
-              rows="4"
-            ></textarea>
-          </div>
-          <div class="modal-actions">
-            <button 
-              type="button" 
-              class="action-button secondary"
-              @click="showInviteModal = false"
-            >
-              取消
-            </button>
-            <button 
-              type="submit" 
-              class="action-button"
-            >
-              发送邀请
-            </button>
-          </div>
-        </form>
+          
+          <button 
+            @click="assignSpeaker(speaker.id)" 
+            class="assign-button"
+            :disabled="assigning"
+          >
+            {{ assigning && assigningSpeakerId === speaker.id ? '分配中...' : '分配' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { getPresentationById, assignSpeakerToPresentation } from '../../services/presentation';
 
+// 状态变量
+const selectedPresentationId = ref(null);
+const presentationDetails = ref(null);
+const speakers = ref([]);
 const searchQuery = ref('');
-const currentFilter = ref('all');
-const showInviteModal = ref(false);
-const inviteEmail = ref('');
-const inviteMessage = ref('');
+const loading = ref(false);
+const error = ref(null);
+const assigning = ref(false);
+const assigningSpeakerId = ref(null);
 
-const filterStatus = [
-  { label: '全部', value: 'all' },
-  { label: '活跃', value: 'active' },
-  { label: '空闲', value: 'available' },
-  { label: '已分配', value: 'assigned' }
+// 模拟数据 - 实际中应该从API获取
+speakers.value = [
+  { id: 1, username: 'speaker_one', email: 'speaker1@example.com' },
+  { id: 2, username: 'speaker_two', email: 'speaker2@example.com' },
+  { id: 3, username: 'speaker_three', email: 'speaker3@example.com' }
 ];
 
-// 模拟数据
-const speakers = ref([
-  {
-    id: 1,
-    name: '张教授',
-    email: 'zhang@example.com',
-    tags: ['人工智能', '机器学习'],
-    presentationCount: 5,
-    status: 'active'
-  },
-  {
-    id: 2,
-    name: '李博士',
-    email: 'li@example.com',
-    tags: ['Web开发', '前端技术'],
-    presentationCount: 3,
-    status: 'available'
+// 页面加载时获取已选择的演讲ID
+onMounted(() => {
+  const storedId = localStorage.getItem('selectedPresentationId');
+  if (storedId) {
+    selectedPresentationId.value = parseInt(storedId);
+    fetchPresentationDetails();
+    // fetchSpeakers(); // 实际项目中应该实现此函数获取所有演讲者
   }
-]);
-
-const filteredSpeakers = computed(() => {
-  return speakers.value
-    .filter(speaker => {
-      const matchesSearch = speaker.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-                          speaker.email.toLowerCase().includes(searchQuery.value.toLowerCase());
-      const matchesFilter = currentFilter.value === 'all' || speaker.status === currentFilter.value;
-      return matchesSearch && matchesFilter;
-    });
 });
 
-const getStatusText = (status) => {
-  const statusMap = {
-    active: '进行中',
-    available: '空闲',
-    assigned: '已分配'
-  };
-  return statusMap[status] || status;
+// 监听选中的演讲ID变化
+watch(selectedPresentationId, (newValue) => {
+  if (newValue) {
+    fetchPresentationDetails();
+    // fetchSpeakers(); // 实际项目中应该实现此函数获取所有演讲者
+  } else {
+    presentationDetails.value = null;
+  }
+});
+
+// 过滤演讲者
+const filteredSpeakers = computed(() => {
+  if (!searchQuery.value) return speakers.value;
+  
+  const query = searchQuery.value.toLowerCase();
+  return speakers.value.filter(speaker => 
+    speaker.username.toLowerCase().includes(query) ||
+    speaker.email.toLowerCase().includes(query)
+  );
+});
+
+// 获取演讲详情
+const fetchPresentationDetails = async () => {
+  if (!selectedPresentationId.value) return;
+  
+  try {
+    loading.value = true;
+    error.value = null;
+    
+    // 以organizer角色获取演讲详情
+    const data = await getPresentationById(selectedPresentationId.value, 'organizer');
+    presentationDetails.value = data;
+  } catch (err) {
+    console.error('获取演讲详情失败:', err);
+    error.value = '获取演讲详情失败: ' + (err.message || '未知错误');
+  } finally {
+    loading.value = false;
+  }
 };
 
-const assignPresentation = (speaker) => {
-  // TODO: 实现分配演讲逻辑
-  console.log('分配演讲给:', speaker);
-};
-
-const viewProfile = (speaker) => {
-  // TODO: 实现查看资料逻辑
-  console.log('查看资料:', speaker);
-};
-
-const sendInvite = () => {
-  // TODO: 实现发送邀请逻辑
-  console.log('发送邀请:', { email: inviteEmail.value, message: inviteMessage.value });
-  showInviteModal.value = false;
-  inviteEmail.value = '';
-  inviteMessage.value = '';
+// 分配演讲者
+const assignSpeaker = async (speakerId) => {
+  if (!selectedPresentationId.value || !speakerId) return;
+  
+  try {
+    assigning.value = true;
+    assigningSpeakerId.value = speakerId;
+    error.value = null;
+    
+    await assignSpeakerToPresentation(selectedPresentationId.value, speakerId);
+    
+    // 分配成功后重新获取演讲详情
+    await fetchPresentationDetails();
+    
+    // 显示成功消息
+    alert('演讲者分配成功');
+  } catch (err) {
+    console.error('分配演讲者失败:', err);
+    error.value = '分配演讲者失败: ' + (err.message || '未知错误');
+    alert('分配演讲者失败: ' + (err.message || '未知错误'));
+  } finally {
+    assigning.value = false;
+    assigningSpeakerId.value = null;
+  }
 };
 </script>
 
 <style scoped>
-.speaker-assignment {
+.sub-dashboard-section {
+  padding: 20px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.header-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex: 1;
+  box-sizing: border-box;
+  min-height: 0;
 }
 
 h2 {
   color: #4dc189;
-  margin: 0;
+  margin-bottom: 20px;
+}
+
+.no-selection, .empty-state, .loading-state, .error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 20px;
+  text-align: center;
+}
+
+.retry-button {
+  margin-top: 15px;
+  text-decoration: none;
+  background-color: #4dc189;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-weight: bold;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.retry-button:hover {
+  background-color: #3aa875;
+  transform: translateY(-1px);
+}
+
+.error-state {
+  color: #e74c3c;
+}
+
+.presentation-header {
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.presentation-header h3 {
+  color: #333;
+  margin-bottom: 5px;
 }
 
 .search-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 20px;
 }
 
 .search-box {
   position: relative;
-  flex: 1;
-  max-width: 300px;
 }
 
 .search-box input {
   width: 100%;
-  padding: 10px 30px 10px 10px;
+  padding: 10px 15px;
   border: 1px solid #ddd;
   border-radius: 20px;
   font-size: 14px;
+  outline: none;
+  transition: border-color 0.3s ease;
 }
 
-.search-icon {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #666;
-}
-
-.filter-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.filter-button {
-  padding: 6px 12px;
-  border-radius: 15px;
-  border: 1px solid #ddd;
-  background-color: #fff;
-  color: #666;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.filter-button:hover {
+.search-box input:focus {
   border-color: #4dc189;
-  color: #4dc189;
 }
 
-.filter-button.active {
-  background-color: #4dc189;
-  border-color: #4dc189;
-  color: #fff;
-}
-
-.speakers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
-}
-
-.speaker-card {
-  background-color: #f9f9f9;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+.speakers-list {
   display: flex;
   flex-direction: column;
   gap: 15px;
 }
 
-.speaker-info {
-  display: flex;
-  gap: 15px;
-}
-
-.avatar {
-  width: 50px;
-  height: 50px;
-  border-radius: 25px;
-  background-color: #4dc189;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  font-weight: bold;
-}
-
-.details {
-  flex: 1;
-}
-
-.details h3 {
-  color: #333;
-  margin: 0 0 5px 0;
-  font-size: 16px;
-}
-
-.email {
-  color: #666;
-  font-size: 14px;
-  margin-bottom: 10px;
-}
-
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.tag {
-  padding: 2px 8px;
-  background-color: #e9ecef;
-  border-radius: 10px;
-  font-size: 12px;
-  color: #666;
-}
-
-.presentation-info {
+.speaker-item {
+  background-color: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 15px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
-  border-top: 1px solid #eee;
-  border-bottom: 1px solid #eee;
 }
 
-.presentation-count {
-  text-align: center;
+.speaker-info h3 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
 }
 
-.presentation-count .count {
-  display: block;
-  font-size: 24px;
-  font-weight: bold;
-  color: #4dc189;
-}
-
-.presentation-count .label {
-  font-size: 12px;
+.speaker-info p {
+  margin: 5px 0 0;
   color: #666;
+  font-size: 14px;
 }
 
-.status-badge {
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: bold;
-  color: white;
-}
-
-.status-badge.active {
-  background-color: #28a745;
-}
-
-.status-badge.available {
-  background-color: #17a2b8;
-}
-
-.status-badge.assigned {
-  background-color: #6c757d;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.action-button {
-  flex: 1;
-  border-radius: 20px;
-  border: 1px solid #4dc189;
+.assign-button {
   background-color: #4dc189;
-  color: #FFFFFF;
-  font-size: 12px;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 20px;
+  font-size: 14px;
   font-weight: bold;
-  padding: 8px 16px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  transition: all 0.3s ease;
   cursor: pointer;
+  transition: all 0.3s ease;
 }
 
-.action-button:hover {
+.assign-button:hover:not(:disabled) {
   background-color: #3aa875;
   transform: translateY(-1px);
 }
 
-.action-button.secondary {
-  background-color: #fff;
-  color: #4dc189;
-}
-
-.action-button.secondary:hover {
-  background-color: #f0f9f4;
-}
-
-/* 模态框样式 */
-.modal-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  width: 90%;
-  max-width: 500px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-
-.modal-content h3 {
-  color: #4dc189;
-  margin-bottom: 20px;
-}
-
-.invite-form {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.form-group label {
-  color: #333;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.form-group input,
-.form-group textarea {
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
+.assign-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
 }
 </style>
