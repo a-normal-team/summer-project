@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  backend:
+    build: ./back-flask
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./back-flask/app/site.db:/app/app/site.db
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    restart: unless-stopped
+
+  frontend:
+    build: ./front-vue/vue-project
+    ports:
+      - "8080:80"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL}
+    depends_on:
+      - backend

@@ -1,0 +1,29 @@
+version: '3'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://api:5000/api}
+    # 如果有后端API服务，可以取消注释下面的部分
+    # depends_on:
+    #   - api
+
+  # 如果有后端API服务，可以取消注释下面的部分
+  # api:
+  #   image: your-backend-image
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - api-data:/data
+  #   environment:
+  #     - DATABASE_URL=your-database-url
+  #     - SECRET_KEY=your-secret-key
+
+# 如果有持久化存储需求，可以取消注释下面的部分
+# volumes:
+#   api-data:

@@ -1,0 +1,10 @@
+flask
+flask_sqlalchemy
+flask_bcrypt
+flask_jwt_extended
+flask_cors
+boto3
+flask_socketio
+python-dotenv
+gunicorn
+eventlet

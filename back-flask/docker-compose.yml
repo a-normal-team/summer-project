@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  flask-app:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./app/site.db:/app/app/site.db
+    environment:
+      - SECRET_KEY='deb9b858c62af5349ae342e94a7ab2f5'
+      - JWT_SECRET_KEY='bda0032f56b9c2206780343cc7d643502f1be5f95b7eae739471d58527f74a8b'
+    restart: unless-stopped

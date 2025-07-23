@@ -4,8 +4,8 @@ load_dotenv() # 加载 .env 文件中的环境变量
 import os # Add this import
 from app import create_app, socketio # Import socketio
 
-# For development: ensure a clean database on each run
-if os.path.exists('site.db'):
+# 只在开发环境中重置数据库
+if os.environ.get('FLASK_ENV') == 'development' and os.path.exists('site.db'):
     os.remove('site.db')
     print("Removed existing site.db for a clean start.")
 
