@@ -156,3 +156,47 @@ def get_files_by_presentation(presentation_id):
     } for f in files]
 
     return jsonify(file_list), 200
+
+@files_bp.route('/delete/<int:file_id>', methods=['DELETE'])
+@jwt_required()
+def delete_file(file_id):
+    """
+    删除文件接口 - 仅限组织者和文件上传者（演讲者）使用
+    """
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get(current_user_id)
+    
+    # 查找文件记录
+    file_record = File.query.get(file_id)
+    if not file_record:
+        return jsonify({"msg": "File not found"}), 404
+        
+    # 权限检查：只有组织者和文件上传者可以删除文件
+    if not (user.role.name == 'organizer' or file_record.user_id == current_user_id):
+        return jsonify({"msg": "Unauthorized to delete this file"}), 403
+    
+    try:
+        # 1. 从S3/R2存储中删除文件
+        s3_client = current_app.config.get('S3_CLIENT')
+        s3_bucket_name = current_app.config.get('S3_BUCKET_NAME')
+        
+        if not s3_client or not s3_bucket_name:
+            return jsonify({"msg": "S3/R2 storage not configured"}), 500
+            
+        # 尝试删除对象存储中的文件
+        try:
+            s3_client.delete_object(Bucket=s3_bucket_name, Key=file_record.s3_key)
+        except Exception as e:
+            current_app.logger.error(f"Error deleting file from S3/R2: {e}")
+            # 即使从S3/R2删除失败，我们也继续删除数据库记录
+        
+        # 2. 从数据库中删除文件记录
+        db.session.delete(file_record)
+        db.session.commit()
+        
+        return jsonify({"msg": "File deleted successfully"}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error deleting file: {e}")
+        db.session.rollback()
+        return jsonify({"msg": f"Failed to delete file: {str(e)}"}), 500

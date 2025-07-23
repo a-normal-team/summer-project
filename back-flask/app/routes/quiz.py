@@ -45,6 +45,78 @@ def create_question(presentation_id):
     return jsonify({"msg": "Question created successfully", "question_id": new_question.id}), 201
 
 # Get Active Question for a Presentation (Listener/Speaker)
+@quiz_bp.route('/presentations/<int:presentation_id>/questions', methods=['GET'])
+@jwt_required()
+def get_presentation_questions(presentation_id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    presentation = Presentation.query.get(presentation_id)
+    if not presentation:
+        return jsonify({"msg": "Presentation not found"}), 404
+    
+    # 检查用户是否有权限访问该演示文稿
+    if user.role.name == 'listener' and user not in presentation.listeners:
+        return jsonify({"msg": "You are not a listener for this presentation"}), 403
+    if user.role.name == 'speaker' and presentation.speaker_id != int(current_user_id):
+        return jsonify({"msg": "You are not the speaker for this presentation"}), 403
+    
+    # 获取演示文稿的所有问题
+    questions = Question.query.filter_by(presentation_id=presentation_id).all()
+    
+    # 将问题转换为JSON格式
+    question_list = []
+    for q in questions:
+        question_data = {
+            "id": q.id,
+            "question_text": q.question_text,
+            "question_type": q.question_type,
+            "options": json.loads(q.options) if q.options else None,
+            "is_active": q.is_active
+        }
+        # 只有演讲者和组织者可以看到正确答案
+        if user.role.name in ['speaker', 'organizer']:
+            question_data["correct_answer"] = q.correct_answer
+        
+        question_list.append(question_data)
+    
+    return jsonify({"questions": question_list}), 200
+
+@quiz_bp.route('/presentations/<int:presentation_id>/active_questions', methods=['GET'])
+@jwt_required()
+def get_active_questions(presentation_id):
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    presentation = Presentation.query.get(presentation_id)
+    if not presentation:
+        return jsonify({"msg": "Presentation not found"}), 404
+
+    # 检查用户是否有权限访问该演示文稿
+    if user.role.name == 'listener' and user not in presentation.listeners:
+        return jsonify({"msg": "You are not a listener for this presentation"}), 403
+    if user.role.name == 'speaker' and presentation.speaker_id != int(current_user_id):
+        return jsonify({"msg": "You are not the speaker for this presentation"}), 403
+    
+    # 获取演示文稿的所有活跃问题
+    active_questions = Question.query.filter_by(presentation_id=presentation_id, is_active=True).all()
+    
+    # 将问题转换为JSON格式
+    active_question_list = []
+    for q in active_questions:
+        question_data = {
+            "id": q.id,
+            "question_text": q.question_text,
+            "question_type": q.question_type,
+            "options": json.loads(q.options) if q.options else None
+        }
+        active_question_list.append(question_data)
+    
+    if not active_question_list:
+        return jsonify({"active_questions": [], "msg": "No active questions for this presentation"}), 200
+    
+    return jsonify({"active_questions": active_question_list}), 200
+
 @quiz_bp.route('/presentations/<int:presentation_id>/active_question', methods=['GET'])
 @jwt_required()
 def get_active_question(presentation_id):
@@ -106,11 +178,12 @@ def submit_answer(question_id):
     if is_correct is not None:
         response["is_correct"] = is_correct
     
-    # Emit answer update for real-time stats
-    # Get updated stats for the question
-    question_stats = _get_question_stats_data(question_id) # Call the helper function
-    if question_stats: # Ensure stats were retrieved successfully
-        socketio.emit('question_stats_update', question_stats, room=f'presentation_{question.presentation_id}')
+    # 注释WebSocket相关代码 - 暂时不使用实时广播功能
+    # # Emit answer update for real-time stats
+    # # Get updated stats for the question
+    # question_stats = _get_question_stats_data(question_id) # Call the helper function
+    # if question_stats: # Ensure stats were retrieved successfully
+    #     socketio.emit('question_stats_update', question_stats, room=f'presentation_{question.presentation_id}')
 
     return jsonify(response), 201
 
@@ -462,23 +535,24 @@ def generate_questions():
                 question_type=question_type,
                 options=json.dumps(options) if options else None,
                 correct_answer=correct_answer,
-                is_active=False # Questions are inactive by default, speaker activates them later
+                is_active=True # 设置为活跃状态，这样生成后可以立即使用
             )
             db.session.add(new_question) # Move inside the loop
             new_questions.append(new_question) # Move inside the loop
 
         db.session.commit()
 
-        # Emit new question to listeners in the presentation room
-        # Assuming a room for each presentation, e.g., 'presentation_<id>'
-        question_data = {
-            "id": new_question.id,
-            "question_text": new_question.question_text,
-            "question_type": new_question.question_type,
-            "options": json.loads(new_question.options) if new_question.options else None,
-            "is_active": new_question.is_active
-        }
-        socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
+        # 注释WebSocket相关代码 - 暂时不使用实时广播功能
+        # # 为每个生成的问题发送Socket.IO通知
+        # for question in new_questions:
+        #     question_data = {
+        #         "id": question.id,
+        #         "question_text": question.question_text,
+        #         "question_type": question.question_type,
+        #         "options": json.loads(question.options) if question.options else None,
+        #         "is_active": True  # 确保通知中也标记为活跃状态
+        #     }
+        #     socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
 
         return jsonify({
             "msg": f"Successfully generated {len(new_questions)} questions",

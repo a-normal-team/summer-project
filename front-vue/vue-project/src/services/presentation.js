@@ -154,20 +154,13 @@ export async function deletePresentation(presentationId, role = 'speaker') {
 }
 
 /**
- * 添加听众到演讲
+ * 添加听众到演讲 (旧版本)
+ * @deprecated 请使用文件底部的新版本
  * @param {number} presentationId - 演讲ID
  * @param {number} listenerId - 听众ID
  * @returns {Promise} - 包含操作结果的Promise
  */
-export async function addListenerToPresentation(presentationId, listenerId) {
-  try {
-    const data = await post(`/presentations/${presentationId}/add_listener`, { listener_id: listenerId });
-    return data;
-  } catch (error) {
-    console.error(`添加听众到演讲失败:`, error);
-    throw error;
-  }
-}
+// 这个函数已被移除，防止重复定义
 
 /**
  * 从演讲中移除听众
@@ -296,6 +289,32 @@ export async function createPresentationAsOrganizer(presentationData) {
       throw new Error('创建演讲失败：您的账户可能没有被正确设置为组织者角色');
     }
     
+    throw error;
+  }
+}
+
+/**
+ * 将听众添加到演讲
+ * @param {number} presentationId - 演讲ID
+ * @param {number} listenerId - 听众ID
+ * @returns {Promise} - 包含操作结果的Promise
+ */
+export async function addListenerToPresentation(presentationId, listenerId) {
+  try {
+    const options = {
+      headers: {
+        'X-User-Role': 'listener'
+      }
+    };
+    
+    const data = await post(`/presentations/${presentationId}/add_listener`, {
+      listener_id: listenerId
+    }, options);
+    
+    console.log(`将听众(ID: ${listenerId})添加到演讲(ID: ${presentationId})成功`);
+    return data;
+  } catch (error) {
+    console.error(`将听众添加到演讲(ID: ${presentationId})失败:`, error);
     throw error;
   }
 }

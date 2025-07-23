@@ -4,6 +4,7 @@
  */
 
 import { get, post } from './http';
+import { API_CONFIG, AUTH_CONFIG } from '../config';
 
 /**
  * 为演讲创建新题目
@@ -37,6 +38,29 @@ export async function getActiveQuestion(presentationId) {
 }
 
 /**
+ * 获取演讲当前所有活跃的题目
+ * @param {number} presentationId - 演讲ID
+ * @returns {Promise} - 包含所有活跃题目的Promise
+ */
+export async function getActiveQuestions(presentationId) {
+  try {
+    const data = await get(`/quiz/presentations/${presentationId}/active_questions`);
+    console.log('活跃题目API返回数据:', data); // 添加日志，便于调试
+    
+    // 根据API返回格式灵活处理
+    if (Array.isArray(data)) {
+      return data; // 如果直接返回数组，就使用这个数组
+    } else if (data && data.active_questions) {
+      return data.active_questions; // 如果返回对象包含active_questions字段，则使用该字段
+    } else {
+      return []; // 其他情况返回空数组
+    }
+  } catch (error) {
+    console.error(`获取演讲(ID: ${presentationId})所有活跃题目失败:`, error);
+  }
+}
+
+/**
  * 提交题目答案
  * @param {number} questionId - 题目ID
  * @param {number} selectedOptionIndex - 选择的答案选项索引
@@ -44,13 +68,32 @@ export async function getActiveQuestion(presentationId) {
  */
 export async function submitAnswer(questionId, selectedOptionIndex) {
   try {
-    // 获取当前用户ID (实际项目中应该从全局状态或服务中获取)
-    const userId = 1; // 模拟当前用户ID
+    // 将选项索引转换为对应的字母答案（A、B、C、D...）
+    const answerText = String.fromCharCode(65 + selectedOptionIndex);
     
-    const data = await post(`/quiz/questions/${questionId}/answer`, {
-      user_id: userId,
-      answer: selectedOptionIndex // 发送所选选项的索引
+    // 确保URL路径正确，使用/api/quiz/questions/...格式
+    const endpoint = `/api/quiz/questions/${questionId}/answer`;
+    console.log(`提交答案到 ${endpoint}`, { answer_text: answerText });
+    
+    // 使用带完整路径的请求
+    const response = await fetch(`${API_CONFIG.BASE_URL.replace('/api', '')}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': localStorage.getItem(AUTH_CONFIG.TOKEN_KEY) ? `Bearer ${localStorage.getItem(AUTH_CONFIG.TOKEN_KEY)}` : '',
+      },
+      body: JSON.stringify({
+        answer_text: answerText // 发送答案字母作为文本
+      })
     });
+    
+    // 解析响应
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.msg || `提交答案失败: ${response.status}`);
+    }
+    
+    const data = await response.json();
     return data;
   } catch (error) {
     console.error(`提交答案失败:`, error);
@@ -156,6 +199,7 @@ export async function getPresentationQuestions(presentationId) {
 export default {
   createQuestion,
   getActiveQuestion,
+  getActiveQuestions,
   submitAnswer,
   deactivateQuestion,
   getQuestionStats,

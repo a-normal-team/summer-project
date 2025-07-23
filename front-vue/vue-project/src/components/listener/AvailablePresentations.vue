@@ -21,8 +21,13 @@
         <p>{{ presentation.description }}</p>
         <p>演讲者: {{ presentation.speaker || '未分配' }}</p>
         <div class="action-buttons">
-          <button @click="joinPresentation(presentation)" class="select-button">
-            参与演讲
+          <button 
+            @click="joinPresentation(presentation)" 
+            class="select-button"
+            :disabled="joiningPresentationId !== null"
+            :class="{'loading': isJoining(presentation.id)}"
+          >
+            {{ isJoining(presentation.id) ? '加入中...' : '参与演讲' }}
           </button>
         </div>
       </div>
@@ -33,13 +38,17 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { getPresentations } from '../../services/presentation';
+import { getPresentations, addListenerToPresentation } from '../../services/presentation';
 import { authState } from '../../services/auth';
 
 const router = useRouter();
 const presentations = ref([]);
 const loading = ref(false);
 const error = ref(null);
+const joiningPresentationId = ref(null); // 存储正在加入的演讲ID
+
+// 判断演讲是否正在加入中
+const isJoining = (presentationId) => joiningPresentationId.value === presentationId;
 
 // 页面加载时从API获取演讲列表
 onMounted(async () => {
@@ -76,14 +85,39 @@ const fetchPresentations = async () => {
 };
 
 // 参与演讲
-const joinPresentation = (presentation) => {
-  // 将选中的演讲信息存储在localStorage中
-  localStorage.setItem('selectedPresentation', JSON.stringify({
-    id: presentation.id,
-    title: presentation.title
-  }));
-  // 导航到当前演讲页面
-  router.push('/listener/dashboard/active');
+const joinPresentation = async (presentation) => {
+  if (joiningPresentationId.value !== null) return; // 防止重复点击
+  
+  try {
+    joiningPresentationId.value = presentation.id;
+    error.value = null; // 清除之前的错误信息
+    
+    // 获取当前用户ID
+    const currentUserId = authState.user?.id;
+    if (!currentUserId) {
+      error.value = '用户未登录或无法获取用户ID';
+      joiningPresentationId.value = null;
+      return;
+    }
+    
+    // 调用API将听众添加到演讲
+    const result = await addListenerToPresentation(presentation.id, currentUserId);
+    console.log('加入演讲结果:', result);
+    
+    // 将选中的演讲信息存储在localStorage中
+    localStorage.setItem('selectedPresentation', JSON.stringify({
+      id: presentation.id,
+      title: presentation.title
+    }));
+    
+    // 导航到当前演讲页面
+    router.push('/listener/dashboard/active');
+  } catch (err) {
+    console.error('加入演讲失败:', err);
+    error.value = err.message || '加入演讲失败，请稍后重试';
+  } finally {
+    joiningPresentationId.value = null;
+  }
 };
 </script>
 
@@ -189,5 +223,15 @@ h2 {
 
 .select-button:hover {
   background-color: #3aa875;
+}
+
+.select-button.loading {
+  background-color: #90d5b8;
+  cursor: not-allowed;
+}
+
+.select-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 </style>

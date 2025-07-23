@@ -32,6 +32,15 @@
       <button @click="fetchReport" class="retry-button">重试</button>
     </div>
     
+    <div v-else-if="hasActiveQuestions" class="waiting-state">
+      <div class="waiting-icon">
+        <i class="waiting-spinner"></i>
+      </div>
+      <p>等待所有题目回答完毕后展示</p>
+      <p class="waiting-sub-text">当前演讲中仍有进行中的题目</p>
+      <button @click="fetchReport" class="retry-button">刷新状态</button>
+    </div>
+    
     <div v-else class="report-content">
       <div class="presentation-header">
         <h3>{{ selectedPresentation?.title }}</h3>
@@ -95,7 +104,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
 import { getPresentations } from '../../services/presentation';
-import { getUserReport } from '../../services/quiz';
+import { getUserReport, getActiveQuestions } from '../../services/quiz';
 import { authState, getUserId } from '../../services/auth';
 
 // 状态变量
@@ -105,6 +114,7 @@ const selectedPresentation = ref(null);
 const report = ref({});
 const loading = ref(false);
 const error = ref(null);
+const hasActiveQuestions = ref(false); // 跟踪是否存在活跃题目
 
 // 页面加载时获取已参与的演讲
 onMounted(async () => {
@@ -178,6 +188,20 @@ const fetchReport = async () => {
   error.value = null;
   
   try {
+    // 首先检查演讲是否有活跃的题目
+    try {
+      const activeQuestions = await getActiveQuestions(selectedPresentationId.value);
+      hasActiveQuestions.value = Array.isArray(activeQuestions) && activeQuestions.length > 0;
+      if (hasActiveQuestions.value) {
+        console.log('当前演讲有活跃题目，等待所有题目回答完毕后才能显示报告');
+        loading.value = false;
+        return; // 如果有活跃题目，提前返回，不加载报告内容
+      }
+    } catch (activeErr) {
+      console.warn('检查活跃题目失败:', activeErr);
+      // 继续执行，即使检查活跃题目失败
+    }
+    
     // 使用getUserId辅助函数获取当前用户ID
     const currentUserId = getUserId();
     if (!currentUserId) {
@@ -187,6 +211,7 @@ const fetchReport = async () => {
     // 调用API获取个人报告
     const data = await getUserReport(selectedPresentationId.value, currentUserId);
     report.value = data;
+    hasActiveQuestions.value = false; // 确保设置为false
   } catch (err) {
     console.error('获取个人报告失败:', err);
     error.value = err.message || '获取个人报告失败，请稍后再试';
@@ -286,7 +311,7 @@ h3 {
   margin: 15px 0 10px 0;
 }
 
-.no-selection, .loading-state, .error-state, .empty-state {
+.no-selection, .loading-state, .error-state, .empty-state, .waiting-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -297,6 +322,39 @@ h3 {
 
 .error-state {
   color: #e74c3c;
+}
+
+.waiting-state {
+  color: #4dc189;
+}
+
+.waiting-icon {
+  margin-bottom: 20px;
+  position: relative;
+  width: 50px;
+  height: 50px;
+}
+
+.waiting-spinner {
+  display: inline-block;
+  width: 100%;
+  height: 100%;
+  border: 4px solid rgba(77, 193, 137, 0.3);
+  border-radius: 50%;
+  border-top-color: #4dc189;
+  animation: spin 1s ease-in-out infinite;
+}
+
+.waiting-sub-text {
+  font-size: 14px;
+  opacity: 0.8;
+  margin-top: 5px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .retry-button, .select-button {

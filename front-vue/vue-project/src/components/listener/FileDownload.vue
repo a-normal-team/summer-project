@@ -46,7 +46,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { getPresentations } from '../../services/presentation';
-import { getFilesByPresentation, getFileDownloadUrl } from '../../services/file';
+import { getFilesByPresentation, downloadFile as apiDownloadFile } from '../../services/file';
 import { authState } from '../../services/auth';
 
 // 状态变量
@@ -110,18 +110,20 @@ const fetchParticipatedPresentations = async () => {
 };
 
 // 下载文件
-const downloadFile = (fileId) => {
+const downloadFile = async (fileId) => {
   try {
-    // 获取文件下载URL
-    const downloadUrl = getFileDownloadUrl(fileId);
+    // 显示下载中状态
+    loading.value = true;
     
-    // 打开新窗口下载文件
-    window.open(downloadUrl, '_blank');
+    // 使用API下载文件
+    await apiDownloadFile(fileId);
     
-    console.log(`下载文件ID: ${fileId}, URL: ${downloadUrl}`);
+    console.log(`文件ID: ${fileId} 下载成功`);
   } catch (err) {
     console.error('文件下载失败:', err);
     alert('文件下载失败: ' + (err.message || '未知错误'));
+  } finally {
+    loading.value = false;
   }
 };
 

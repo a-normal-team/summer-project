@@ -71,3 +71,114 @@ export async function getFilesByPresentation(presentationId) {
 export function getFileDownloadUrl(fileId) {
   return `${API_CONFIG.BASE_URL}/files/download/${fileId}`;
 }
+
+/**
+ * 删除文件
+ * @param {number} fileId - 要删除的文件ID
+ * @returns {Promise} - 包含删除结果的Promise
+ * @description 仅组织者或文件原始上传者有权限删除文件
+ */
+export async function deleteFile(fileId) {
+  try {
+    // 获取存储的认证令牌
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('未登录，无法删除文件');
+    }
+    
+    // 设置请求选项，包含授权头
+    const options = {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    };
+    
+    // 发送请求，根据API文档，删除文件的URL为/api/files/delete/<int:file_id>
+    const response = await fetch(`${API_CONFIG.BASE_URL}/files/delete/${fileId}`, options);
+    
+    if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error('无权限删除此文件');
+      } else if (response.status === 404) {
+        throw new Error('文件不存在');
+      }
+      const errorData = await response.json();
+      throw new Error(errorData.msg || '删除文件失败');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('删除文件失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 下载文件
+ * @param {number} fileId - 文件ID
+ * @returns {Promise} - 包含下载结果的Promise
+ */
+export async function downloadFile(fileId) {
+  try {
+    // 获取存储的认证令牌
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('未登录，无法下载文件');
+    }
+    
+    // 设置请求选项，包含授权头
+    const options = {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    };
+    
+    // 发送请求
+    const response = await fetch(`${API_CONFIG.BASE_URL}/files/download/${fileId}`, options);
+    
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('无权限下载此文件');
+      }
+      const errorData = await response.json();
+      throw new Error(errorData.msg || '下载文件失败');
+    }
+    
+    // 获取文件blob
+    const blob = await response.blob();
+    
+    // 从响应头中获取文件名
+    let filename = 'download';
+    const contentDisposition = response.headers.get('Content-Disposition');
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    // 创建下载链接
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    
+    // 触发下载
+    document.body.appendChild(link);
+    link.click();
+    
+    // 清理
+    setTimeout(() => {
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }, 100);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('下载文件失败:', error);
+    throw error;
+  }
+}

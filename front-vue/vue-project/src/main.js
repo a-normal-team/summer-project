@@ -8,6 +8,12 @@ import { checkAuth, authState, navigateToDashboard } from './services/auth'; // 
 
 // 添加路由守卫
 router.beforeEach(async (to, from, next) => {
+  // 如果是访问根路径，直接重定向到登录页面
+  if (to.path === '/') {
+    next('/login');
+    return;
+  }
+
   // 需要认证的路由
   const authRequired = to.path.includes('/dashboard');
   

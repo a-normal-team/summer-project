@@ -42,7 +42,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { getPresentationById } from '../../services/presentation';
-import { getFilesByPresentation, uploadFile as apiUploadFile, getFileDownloadUrl } from '../../services/file';
+import { getFilesByPresentation, uploadFile as apiUploadFile, downloadFile as apiDownloadFile, deleteFile as apiDeleteFile } from '../../services/file';
 import { authState } from '../../services/auth';
 
 const router = useRouter();
@@ -131,14 +131,45 @@ const uploadFile = () => {
 };
 
 // 查看文件
-const viewFile = (file) => {
-  const downloadUrl = getFileDownloadUrl(file.id);
-  window.open(downloadUrl, '_blank');
+const viewFile = async (file) => {
+  try {
+    loading.value = true;
+    await apiDownloadFile(file.id);
+  } catch (err) {
+    console.error('文件查看失败:', err);
+    error.value = err.message || '文件查看失败，请稍后再试';
+  } finally {
+    loading.value = false;
+  }
 };
 
-// 删除文件 (注意：API文档中没有删除文件的端点，这里保留为占位符)
-const deleteFile = (file) => {
-  alert(`API中没有提供删除文件的功能: ${file.filename}`);
+// 删除文件
+const deleteFile = async (file) => {
+  // 确认是否要删除文件
+  if (!confirm(`确定要删除文件 "${file.filename}" 吗？此操作不可撤销。`)) {
+    return;
+  }
+  
+  loading.value = true;
+  error.value = null;
+  
+  try {
+    // 调用API删除文件
+    const result = await apiDeleteFile(file.id);
+    console.log('文件删除成功:', result);
+    
+    // 从列表中移除已删除的文件
+    files.value = files.value.filter(f => f.id !== file.id);
+    
+    // 显示成功消息
+    alert(`文件 "${file.filename}" 已成功删除`);
+  } catch (err) {
+    console.error('文件删除失败:', err);
+    error.value = err.message || '文件删除失败，请稍后再试';
+    alert(`删除文件失败: ${err.message || '未知错误'}`);
+  } finally {
+    loading.value = false;
+  }
 };
 </script>
 

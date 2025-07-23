@@ -12,13 +12,16 @@
             <span class="username">{{ comment.username }}</span>
             <span class="role-tag" :class="comment.role">{{ getRoleText(comment.role) }}</span>
           </div>
-          <span class="comment-time">{{ formatTime(comment.time) }}</span>
+          <span class="comment-time">{{ formatTime(comment.time || comment.timestamp) }}</span>
         </div>
-        <div class="comment-content">{{ comment.content }}</div>
+        <div class="comment-content">{{ comment.content || comment.comment_text }}</div>
         <div class="comment-actions">
-          <button class="action-link" @click="replyTo(comment)">回复</button>
-          <button v-if="canDelete(comment)" class="action-link delete" @click="deleteComment(comment.id)">
-            删除
+          <button 
+            class="action-link" 
+            :class="{'replying': replyingTo === comment.id}"
+            @click="toggleReplyTo(comment)"
+          >
+            {{ replyingTo === comment.id ? '正在回复...' : '回复' }}
           </button>
         </div>
         
@@ -30,9 +33,9 @@
                 <span class="username">{{ reply.username }}</span>
                 <span class="role-tag" :class="reply.role">{{ getRoleText(reply.role) }}</span>
               </div>
-              <span class="comment-time">{{ formatTime(reply.time) }}</span>
+              <span class="comment-time">{{ formatTime(reply.time || reply.timestamp) }}</span>
             </div>
-            <div class="comment-content">{{ reply.content }}</div>
+            <div class="comment-content">{{ reply.content || reply.comment_text }}</div>
           </div>
         </div>
       </div>
@@ -94,12 +97,25 @@ const getRoleText = (role) => {
 };
 
 const formatTime = (time) => {
-  return new Date(time).toLocaleString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  if (!time) return '刚刚'; // 如果时间为空，显示"刚刚"
+  
+  try {
+    const date = new Date(time);
+    // 检查日期是否有效
+    if (isNaN(date.getTime())) {
+      return '刚刚';
+    }
+    
+    return date.toLocaleString('zh-CN', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (err) {
+    console.error('格式化时间出错:', err);
+    return '刚刚';
+  }
 };
 
 const submitComment = () => {
@@ -113,19 +129,20 @@ const submitComment = () => {
   }
 };
 
-const replyTo = (comment) => {
-  replyingTo.value = comment.id;
-  emit('reply', comment);
+const toggleReplyTo = (comment) => {
+  // 如果当前已经在回复这条评论，则取消回复状态
+  if (replyingTo.value === comment.id) {
+    replyingTo.value = null;
+  } else {
+    // 否则设置为正在回复该评论
+    replyingTo.value = comment.id;
+    emit('reply', comment);
+  }
 };
 
-const deleteComment = (commentId) => {
-  emit('delete', commentId);
-};
-
+// 保留canDelete函数以防其他地方引用，但删除实际的删除功能
 const canDelete = (comment) => {
-  return props.currentUser.role === 'speaker' || 
-         props.currentUser.role === 'organizer' || 
-         comment.userId === props.currentUser.id;
+  return false; // 直接返回false禁用所有删除按钮
 };
 </script>
 
@@ -237,6 +254,14 @@ const canDelete = (comment) => {
 
 .action-link:hover {
   text-decoration: underline;
+}
+
+.action-link.replying {
+  background-color: rgba(77, 193, 137, 0.1);
+  color: #3aa875;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 12px;
 }
 
 .action-link.delete {
