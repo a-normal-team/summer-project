@@ -55,7 +55,6 @@ AI Pop Quiz 采用前后端分离架构：
 1. 克隆项目
    ```bash
    git clone https://github.com/a-normal-team/summer-project.git
-   cd summer-project/ai-pop-quiz
    ```
 
 2. 运行部署脚本
