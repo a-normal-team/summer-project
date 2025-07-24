@@ -56,6 +56,14 @@
                 <span class="stat-value">{{ stats.totalQuizzes }}</span>
               </div>
               <div class="stat-row">
+                <span class="stat-label">总答题数:</span>
+                <span class="stat-value">{{ stats.totalAnswers }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">平均每题作答:</span>
+                <span class="stat-value">{{ stats.answersPerQuestion }}</span>
+              </div>
+              <div class="stat-row">
                 <span class="stat-label">平均正确率:</span>
                 <span class="stat-value">{{ stats.averageCorrectRate }}%</span>
               </div>
@@ -65,9 +73,15 @@
       </div>
       
       <div class="quiz-stats" v-if="quizResults.length > 0">
-        <h3>测验结果详情</h3>
+        <h3>测验结果详情 (共{{ quizResults.length }}题)</h3>
         <div class="quiz-item" v-for="(quiz, index) in quizResults" :key="index">
-          <h4>测验 {{ index + 1 }}: {{ quiz.question }}</h4>
+          <div class="quiz-header">
+            <h4>测验 {{ index + 1 }}: {{ quiz.question }}</h4>
+            <div class="quiz-status" :class="{ 'high-response': quiz.totalResponses > 0 }">
+              {{ quiz.totalResponses > 0 ? '已有答题' : '暂无答题' }}
+            </div>
+          </div>
+          
           <div class="stat-row">
             <span class="stat-label">总作答人数:</span>
             <span class="stat-value">{{ quiz.totalResponses }}</span>
@@ -78,10 +92,14 @@
           </div>
           <div class="stat-row">
             <span class="stat-label">正确率:</span>
-            <span class="stat-value">{{ quiz.correctRate }}%</span>
+            <span class="stat-value" :class="{ 
+              'high-rate': parseFloat(quiz.correctRate) > 80, 
+              'medium-rate': parseFloat(quiz.correctRate) > 50 && parseFloat(quiz.correctRate) <= 80,
+              'low-rate': parseFloat(quiz.correctRate) <= 50
+            }">{{ quiz.correctRate }}%</span>
           </div>
           
-          <div class="option-distribution">
+          <div class="option-distribution" v-if="quiz.totalResponses > 0">
             <h5>选项分布:</h5>
             <div class="option-item" v-for="(count, option) in quiz.optionDistribution" :key="option">
               <span class="option-label">{{ option }}:</span>
@@ -89,10 +107,36 @@
               <div class="option-bar" :style="{ width: (count / quiz.totalResponses * 100) + '%' }"></div>
             </div>
           </div>
+          <div class="option-distribution" v-else>
+            <p class="no-data-message">暂无选项分布数据</p>
+          </div>
         </div>
       </div>
-      <div v-else class="empty-stats">
-        <p>暂无测验数据</p>
+      
+      <!-- 听众表现详情 -->
+      <div class="listener-performance" v-if="listenerPerformance.length > 0">
+        <h3>听众表现详情</h3>
+        <table class="performance-table">
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>回答问题数</th>
+              <th>正确答案数</th>
+              <th>正确率</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="listener in listenerPerformance" :key="listener.listener_id">
+              <td>{{ listener.listener_username }}</td>
+              <td>{{ listener.answered_questions }}</td>
+              <td>{{ listener.correct_answers }}</td>
+              <td>{{ listener.accuracy_rate }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else-if="!loading" class="empty-stats">
+        <p>暂无听众表现数据</p>
       </div>
     </div>
   </div>
@@ -124,13 +168,56 @@ const stats = computed(() => {
   }
   
   const data = presentationStats.value;
+  
+  // 计算基于listener_performance的活跃听众数量
+  let activeListenersCount = data.active_listeners || 0;
+  
+  // 计算总听众人数 - 优先使用total_participants，如果不存在则使用total_listeners
+  let totalListenersCount = data.total_participants || data.total_listeners || 0;
+  
+  // 如果存在listener_performance数据，则使用它的长度作为活跃听众数
+  if (data.listener_performance && Array.isArray(data.listener_performance) && data.listener_performance.length > 0) {
+    activeListenersCount = data.listener_performance.length;
+    console.log('使用listener_performance数据更新活跃听众数:', activeListenersCount);
+    
+    // 如果没有有效的总听众数据，但有活跃听众数据，则将总听众数至少设置为活跃听众数
+    if (totalListenersCount === 0 || totalListenersCount < activeListenersCount) {
+      totalListenersCount = activeListenersCount;
+      console.log('更新总听众人数为活跃听众数:', totalListenersCount);
+    }
+  }
+  
+  // 获取更多测验情况相关数据
+  const totalQuestionsInPresentation = data.total_questions_in_presentation || data.total_questions || 0;
+  const totalAnswersSubmitted = data.total_answers_submitted || 0;
+  const averageCorrectRate = data.average_correct_rate_across_all_questions || 
+                            data.average_correct_rate || 
+                            '0';
+  
   return {
-    totalListeners: data.total_listeners || 0,
-    activeListeners: data.active_listeners || 0,
-    participationRate: data.total_listeners ? ((data.active_listeners / data.total_listeners) * 100).toFixed(1) : 0,
-    totalQuizzes: data.total_questions || 0,
-    averageCorrectRate: data.average_correct_rate ? data.average_correct_rate.toFixed(1) : 0
+    // 听众数据
+    totalListeners: totalListenersCount,
+    activeListeners: activeListenersCount,
+    participationRate: totalListenersCount ? ((activeListenersCount / totalListenersCount) * 100).toFixed(1) : 0,
+    
+    // 测验数据
+    totalQuizzes: totalQuestionsInPresentation,
+    totalAnswers: totalAnswersSubmitted,
+    averageCorrectRate: typeof averageCorrectRate === 'string' ? 
+                       averageCorrectRate.replace('%', '') : 
+                       parseFloat(averageCorrectRate).toFixed(1),
+    answersPerQuestion: totalQuestionsInPresentation > 0 ? 
+                        (totalAnswersSubmitted / totalQuestionsInPresentation).toFixed(1) : 
+                        0
   };
+});
+
+// 听众表现数据
+const listenerPerformance = computed(() => {
+  if (!presentationStats.value || !presentationStats.value.listener_performance) {
+    return [];
+  }
+  return presentationStats.value.listener_performance;
 });
 
 // 问题统计数据
@@ -196,6 +283,25 @@ const loadPresentationStats = async (presentationId) => {
     const stats = await getPresentationStats(presentationId);
     presentationStats.value = stats;
     console.log('获取演讲统计:', stats);
+    
+    // 专门输出关键数据以便调试
+    console.log('API返回的总听众数:', stats.total_listeners, '总参与者:', stats.total_participants);
+    console.log('测验情况数据:', {
+      '测验总数': stats.total_questions_in_presentation || stats.total_questions,
+      '总答题数': stats.total_answers_submitted,
+      '平均正确率': stats.average_correct_rate_across_all_questions || stats.average_correct_rate
+    });
+    
+    if (stats && stats.listener_performance) {
+      console.log('听众表现数据:', stats.listener_performance);
+      console.log('活跃听众数量(listener_performance长度):', stats.listener_performance.length);
+    } else {
+      console.log('API返回中没有听众表现数据');
+    }
+    
+    if (stats && stats.questions) {
+      console.log('问题详情数据:', stats.questions.length ? `${stats.questions.length}个问题` : '无问题数据');
+    }
   } catch (err) {
     console.error('获取演讲统计失败:', err);
     error.value = err.message || '获取演讲统计失败，请稍后再试';
@@ -329,17 +435,57 @@ h2 {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-.quiz-item h4 {
-  margin-top: 0;
-  color: #333;
+.quiz-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 10px;
   border-bottom: 1px solid #eee;
   padding-bottom: 5px;
 }
 
+.quiz-item h4 {
+  margin-top: 0;
+  color: #333;
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.quiz-status {
+  padding: 4px 8px;
+  border-radius: 12px;
+  background-color: #f0f0f0;
+  font-size: 12px;
+  color: #777;
+}
+
+.quiz-status.high-response {
+  background-color: #e3f5eb;
+  color: #4dc189;
+}
+
 .quiz-item h5 {
   margin: 15px 0 10px;
   color: #555;
+}
+
+.high-rate {
+  color: #4dc189 !important;
+}
+
+.medium-rate {
+  color: #ff9900 !important;
+}
+
+.low-rate {
+  color: #dc3545 !important;
+}
+
+.no-data-message {
+  color: #999;
+  font-style: italic;
+  text-align: center;
+  padding: 10px 0;
 }
 
 .option-distribution {
@@ -418,6 +564,39 @@ h2 {
   color: #cc3333;
   text-align: center;
   margin-bottom: 15px;
+}
+
+/* 听众表现表格 */
+.listener-performance {
+  margin-top: 30px;
+}
+
+.performance-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.performance-table th, 
+.performance-table td {
+  padding: 12px 15px;
+  text-align: left;
+}
+
+.performance-table thead {
+  background-color: #4dc189;
+  color: white;
+}
+
+.performance-table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.performance-table tr:hover {
+  background-color: #f0f9f6;
 }
 
 .retry-button {

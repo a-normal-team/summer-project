@@ -4,7 +4,8 @@
  */
 
 import { get, post } from './http';
-import { API_CONFIG, AUTH_CONFIG } from '../config';
+import { API_CONFIG } from '../config';
+import { getAuthToken } from './token';
 
 /**
  * 为演讲创建新题目
@@ -75,12 +76,15 @@ export async function submitAnswer(questionId, selectedOptionIndex) {
     const endpoint = `/api/quiz/questions/${questionId}/answer`;
     console.log(`提交答案到 ${endpoint}`, { answer_text: answerText });
     
+    // 获取最新的令牌
+    const token = getAuthToken();
+    
     // 使用带完整路径的请求
     const response = await fetch(`${API_CONFIG.BASE_URL.replace('/api', '')}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': localStorage.getItem(AUTH_CONFIG.TOKEN_KEY) ? `Bearer ${localStorage.getItem(AUTH_CONFIG.TOKEN_KEY)}` : '',
+        'Authorization': token ? `Bearer ${token}` : '',
       },
       body: JSON.stringify({
         answer_text: answerText // 发送答案字母作为文本
@@ -179,6 +183,21 @@ export async function generateQuestionsFromFile(fileId, presentationId) {
 }
 
 /**
+ * 基于演讲的所有上传文件生成题目
+ * @param {number} presentationId - 演讲ID
+ * @returns {Promise} - 包含生成结果的Promise
+ */
+export async function generateQuestionsFromPresentation(presentationId) {
+  try {
+    const data = await post(`/quiz/generate_questions_from_presentation`, { presentation_id: presentationId });
+    return data;
+  } catch (error) {
+    console.error(`基于演讲生成题目失败:`, error);
+    throw error;
+  }
+}
+
+/**
  * 获取演讲的所有题目
  * @param {number} presentationId - 演讲ID
  * @returns {Promise} - 包含题目列表的Promise
@@ -206,5 +225,6 @@ export default {
   getUserReport,
   getPresentationStats,
   generateQuestionsFromFile,
+  generateQuestionsFromPresentation,
   getPresentationQuestions
 };

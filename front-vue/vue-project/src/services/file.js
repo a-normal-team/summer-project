@@ -5,6 +5,7 @@
 
 import { get } from './http';
 import { API_CONFIG } from '../config';
+import { getAuthToken } from './token';
 
 /**
  * 上传文件
@@ -23,8 +24,8 @@ export async function uploadFile(file, presentationId) {
       formData.append('presentation_id', presentationId);
     }
     
-    // 获取存储的认证令牌
-    const token = localStorage.getItem('token');
+    // 获取当前标签页的认证令牌
+    const token = getAuthToken();
     
     // 设置请求选项
     const options = {
@@ -80,8 +81,8 @@ export function getFileDownloadUrl(fileId) {
  */
 export async function deleteFile(fileId) {
   try {
-    // 获取存储的认证令牌
-    const token = localStorage.getItem('token');
+    // 获取当前标签页的认证令牌
+    const token = getAuthToken();
     if (!token) {
       throw new Error('未登录，无法删除文件');
     }
@@ -122,8 +123,8 @@ export async function deleteFile(fileId) {
  */
 export async function downloadFile(fileId) {
   try {
-    // 获取存储的认证令牌
-    const token = localStorage.getItem('token');
+    // 获取当前标签页的认证令牌
+    const token = getAuthToken();
     if (!token) {
       throw new Error('未登录，无法下载文件');
     }

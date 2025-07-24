@@ -3,7 +3,8 @@
  * 提供封装好的 fetch API，自动处理认证和错误
  */
 
-import { API_CONFIG, AUTH_CONFIG } from '../config';
+import { API_CONFIG } from '../config';
+import { getAuthToken } from './token';
 
 /**
  * 执行 HTTP 请求
@@ -17,8 +18,8 @@ export async function apiRequest(endpoint, options = {}) {
     
   const url = `${API_CONFIG.BASE_URL}${cleanEndpoint}`;
   
-  // 获取存储的认证令牌
-  const token = localStorage.getItem(AUTH_CONFIG.TOKEN_KEY);
+  // 获取最新的令牌
+  const token = getAuthToken();
   
   // 设置默认请求头
   const headers = {

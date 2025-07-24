@@ -16,6 +16,56 @@ onMounted(async () => {
       console.error('App.vue - 获取用户资料失败:', error);
     }
   }
+  
+  // 设置令牌更新事件监听器
+  const handleTokenUpdate = (event) => {
+    const { userRole, userId } = event.detail;
+    console.log(`[App.vue] 收到令牌更新事件: ${userRole} (${userId})`);
+    
+    // 获取当前标签页的角色和用户标识符
+    const currentRole = localStorage.getItem('currentUserRole');
+    const currentUserId = localStorage.getItem('currentUserIdentifier');
+    
+    // 只有在当前标签页无登录信息或是同一用户同一角色时，才更新用户资料
+    if (!currentRole || !currentUserId || (currentRole === userRole && currentUserId === userId)) {
+      console.log('[App.vue] 处理令牌更新：获取用户资料');
+      // 如果当前没有用户资料，尝试获取
+      if (authState.isAuthenticated) {
+        fetchUserProfile().catch(error => {
+          console.error('[App.vue] 令牌更新后获取用户资料失败:', error);
+        });
+      }
+    } else {
+      console.log(`[App.vue] 不处理令牌更新：当前标签页已有不同的用户/角色登录 (${currentRole}/${currentUserId})`);
+    }
+  };
+  
+  // 设置退出登录事件监听器
+  const handleLogoutEvent = (event) => {
+    const { userRole, userId } = event.detail;
+    console.log(`[App.vue] 收到退出登录事件: ${userRole} (${userId})`);
+    
+    // 获取当前标签页的角色和用户标识符
+    const currentRole = localStorage.getItem('currentUserRole');
+    const currentUserId = localStorage.getItem('currentUserIdentifier');
+    
+    // 只有在当前标签页是同一个用户在同一个角色下登录时，才处理退出登录事件
+    if (!currentRole || !currentUserId || (currentRole === userRole && currentUserId === userId)) {
+      console.log('[App.vue] 处理退出登录事件');
+    } else {
+      console.log(`[App.vue] 不处理退出登录事件：当前标签页已有不同的用户/角色登录 (${currentRole}/${currentUserId})`);
+    }
+  };
+  
+  // 添加事件监听器
+  window.addEventListener('auth_token_updated', handleTokenUpdate);
+  window.addEventListener('auth_logout', handleLogoutEvent);
+  
+  // 组件卸载时移除事件监听器
+  return () => {
+    window.removeEventListener('auth_token_updated', handleTokenUpdate);
+    window.removeEventListener('auth_logout', handleLogoutEvent);
+  };
 });
 
 // 监听认证状态变化

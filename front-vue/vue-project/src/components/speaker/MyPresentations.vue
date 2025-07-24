@@ -9,7 +9,7 @@
       <button @click="fetchPresentations" class="retry-button">重试</button>
     </div>
     <div v-else-if="presentations.length === 0" class="empty-state">
-      <p>暂无演讲记录，请先创建演讲。</p>
+      <p>您还未发布演讲，请先创建演讲。</p>
       <router-link to="/speaker/dashboard/create" class="create-link">创建新演讲</router-link>
     </div>
     <div v-else class="presentation-list">
@@ -128,18 +128,16 @@ const fetchPresentations = async () => {
       
       console.log('过滤后的演讲列表包含', presentations.value.length, '个项目');
       
-      // 紧急解决方案：如果过滤后没有演讲，可能是用户名匹配不上，显示所有演讲并标记
+      // 如果过滤后没有演讲，保持空列表状态，前端会显示"您还未发布演讲"
       if (presentations.value.length === 0) {
-        console.warn('过滤后没有找到匹配的演讲，显示所有演讲（紧急解决方案）');
+        console.warn('过滤后没有找到匹配的演讲，保持空列表状态');
         
         // 记录当前用户名和所有演讲者名称，帮助调试
         console.log('当前用户名:', username);
         console.log('所有演讲者名称:', data.map(p => p.speaker));
         
-        presentations.value = data.map(p => ({
-          ...p,
-          title: `${p.title} [可能不是您的演讲]`, // 标记可能不属于当前用户的演讲
-        }));
+        // 不再设置全部演讲，保持空列表
+        presentations.value = [];
       }
     } else {
       // 如果返回的不是数组

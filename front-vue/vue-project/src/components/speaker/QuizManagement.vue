@@ -17,10 +17,15 @@
         <h3>当前选中: {{ selectedPresentation.title }}</h3>
         <p>{{ selectedPresentation.description }}</p>
       </div>
-      <button class="action-button generate-button" @click="generateQuiz" :disabled="loading">生成随堂测验</button>
+      <button class="action-button generate-button" @click="generateQuiz" :disabled="loading">{{ loading ? '生成中...' : '基于所有文件生成随堂测验' }}</button>
       
       <div v-if="activeQuizzes.length > 0" class="active-quiz-section">
-        <h3>当前活跃题目 ({{ activeQuizzes.length }}个):</h3>
+        <div class="section-header">
+          <h3>当前活跃题目 ({{ activeQuizzes.length }}个):</h3>
+          <button class="action-button danger" @click="deactivateAllQuizzes" :disabled="loading">
+            停用所有活跃题目
+          </button>
+        </div>
         
         <div v-for="quiz in activeQuizzes" :key="quiz.id" class="quiz-item">
           <div class="question-content">
@@ -83,6 +88,7 @@ import {
   deactivateQuestion as apiDeactivateQuestion,
   getQuestionStats,
   generateQuestionsFromFile,
+  generateQuestionsFromPresentation,
   getPresentationQuestions
 } from '../../services/quiz';
 import { getFilesByPresentation } from '../../services/file';
@@ -106,6 +112,34 @@ const inactiveQuizzes = computed(() => {
     !activeQuiz.value || quiz.id !== activeQuiz.value.id
   );
 });
+
+// 停用所有活跃题目
+const deactivateAllQuizzes = async () => {
+  if (!activeQuizzes.value || activeQuizzes.value.length === 0) return;
+  
+  if (confirm(`确定要停用所有活跃题目吗？`)) {
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      // 循环调用API停用所有活跃题目
+      const deactivationPromises = activeQuizzes.value.map(quiz => apiDeactivateQuestion(quiz.id));
+      await Promise.all(deactivationPromises);
+      
+      // 清空活跃题目列表
+      activeQuizzes.value = [];
+      activeQuiz.value = null;
+      
+      // 重新加载所有问题列表
+      await loadPresentationQuestions(selectedPresentation.value.id);
+    } catch (err) {
+      console.error('停用所有题目失败:', err);
+      error.value = err.message || '停用所有题目失败，请稍后再试';
+    } finally {
+      loading.value = false;
+    }
+  }
+};
 
 // 页面加载时检查是否有选中的演讲
 onMounted(() => {
@@ -282,26 +316,13 @@ const generateQuiz = async () => {
     return;
   }
   
-  if (files.value.length === 0) {
-    error.value = '没有可用的文件来生成题目，请先上传文件';
-    return;
-  }
-  
-  // 显示文件选择对话框
-  const selectedFileId = await showFileSelectionDialog();
-  
-  if (!selectedFileId) {
-    // 用户取消了选择
-    return;
-  }
-  
   loading.value = true;
   error.value = null;
   
   try {
-    // 调用API从文件生成题目
-    const response = await generateQuestionsFromFile(selectedFileId, selectedPresentation.value.id);
-    console.log('从文件生成题目成功:', response);
+    // 使用新的API端点，基于演讲的所有上传文件生成题目
+    const response = await generateQuestionsFromPresentation(selectedPresentation.value.id);
+    console.log('基于演讲生成题目成功:', response);
     
     if (response && response.msg) {
       alert(response.msg);
@@ -314,42 +335,14 @@ const generateQuiz = async () => {
     await loadActiveQuestions(selectedPresentation.value.id);
     await loadPresentationQuestions(selectedPresentation.value.id);
   } catch (err) {
-    console.error('从文件生成题目失败:', err);
-    error.value = err.message || '从文件生成题目失败，请稍后再试';
+    console.error('基于演讲生成题目失败:', err);
+    error.value = err.message || '生成题目失败，请稍后再试';
   } finally {
     loading.value = false;
   }
 };
 
-// 显示文件选择对话框
-const showFileSelectionDialog = () => {
-  return new Promise((resolve) => {
-    if (files.value.length === 0) {
-      alert('没有可用的文件来生成题目，请先上传文件');
-      resolve(null);
-      return;
-    }
-    
-    // 创建文件选择对话框
-    const fileOptions = files.value.map(file => `${file.filename} (${Math.round(file.size / 1024)} KB)`);
-    const selectedIndex = prompt(`请选择要用于生成题目的文件 (输入1-${files.value.length}的数字):\n${
-      fileOptions.map((name, index) => `${index + 1}. ${name}`).join('\n')
-    }`);
-    
-    // 检查选择是否有效
-    if (selectedIndex === null) {
-      resolve(null); // 用户取消了选择
-    } else {
-      const index = parseInt(selectedIndex) - 1;
-      if (isNaN(index) || index < 0 || index >= files.value.length) {
-        alert('无效的选择');
-        resolve(null);
-      } else {
-        resolve(files.value[index].id);
-      }
-    }
-  });
-};
+// 不再需要文件选择对话框，因为新的API端点会使用所有文件
 
 // 获取正确答案对应的选项字母
 const getCorrectAnswerLabel = (quiz) => {
@@ -569,6 +562,18 @@ h2 {
   transform: none;
 }
 
+.action-button.danger {
+  background-color: #e74c3c;
+}
+
+.action-button.danger:hover {
+  background-color: #c0392b;
+}
+
+.action-button.danger:disabled {
+  background-color: #f5b8b2;
+}
+
 .quiz-stats {
   margin-top: 20px;
   background-color: #f0f9f6;
@@ -605,6 +610,13 @@ h2 {
   background-color: #f0f9f6;
   border: 2px solid #4dc189;
   border-radius: 8px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 15px;
   padding: 15px;
   margin-bottom: 20px;
 }

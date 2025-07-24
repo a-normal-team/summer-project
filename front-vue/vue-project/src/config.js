@@ -15,6 +15,10 @@ export const API_CONFIG = {
 export const AUTH_CONFIG = {
   // 存储token的键名
   TOKEN_KEY: 'token',
+  // 为不同角色设置特定的token键名
+  SPEAKER_TOKEN_KEY: 'speaker_token',
+  LISTENER_TOKEN_KEY: 'listener_token',
+  ORGANIZER_TOKEN_KEY: 'organizer_token',
   // token过期时间（毫秒）
   TOKEN_EXPIRY: 24 * 60 * 60 * 1000, // 24小时
 };

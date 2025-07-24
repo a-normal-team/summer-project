@@ -8,3 +8,6 @@ flask_socketio
 python-dotenv
 gunicorn
 eventlet
+python-pptx
+PyPDF2
+python-docx

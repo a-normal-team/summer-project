@@ -5,6 +5,7 @@ from app.models import User
 import PyPDF2
 from io import BytesIO
 from docx import Document # Import Document for docx files
+from pptx import Presentation # Import Presentation for pptx files
 
 def role_required(role_name):
     def wrapper(fn):
@@ -50,5 +51,16 @@ def extract_text_from_file(file_content_bytes, file_type):
             return text
         except Exception as e:
             raise ValueError(f"Error extracting text from DOCX: {e}")
+    elif file_type == 'application/vnd.openxmlformats-officedocument.presentationml.presentation': # .pptx files
+        try:
+            ppt = Presentation(BytesIO(file_content_bytes))
+            text = ""
+            for slide in ppt.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        text += shape.text + "\n"
+            return text
+        except Exception as e:
+            raise ValueError(f"Error extracting text from PPTX: {e}")
     else:
         raise ValueError(f"Unsupported file type for text extraction: {file_type}")

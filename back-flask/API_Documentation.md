@@ -468,10 +468,10 @@
     }
     ```
 
-### 8. 从文件生成题目
+### 8. 从单个文件生成题目
 *   **URL**: `/quiz/generate_questions`
 *   **方法**: `POST`
-*   **描述**: 演讲者根据上传的文件内容生成测验题目。
+*   **描述**: 演讲者根据单个上传的文件内容生成测验题目。支持的文件格式包括PDF (.pdf)、Word文档 (.docx)、PowerPoint演示文稿 (.pptx) 和纯文本文件。
 *   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker`。
 *   **请求体示例**:
     ```json
@@ -527,6 +527,68 @@
     ```json
     {
         "msg": "No extracted text content found for this file"
+    }
+    ```
+*   **响应体示例 (失败 - LLM 生成失败)**:
+    ```json
+    {
+        "msg": "Failed to generate questions from LLM: <error_details>"
+    }
+    ```
+
+### 9. 从演讲的所有文件生成题目
+*   **URL**: `/quiz/generate_questions_from_presentation`
+*   **方法**: `POST`
+*   **描述**: 演讲者根据演讲的所有上传文件内容生成测验题目。系统会合并所有文件的内容，然后基于合并后的内容生成题目。支持的文件格式包括PDF (.pdf)、Word文档 (.docx)、PowerPoint演示文稿 (.pptx) 和纯文本文件。
+*   **权限**: 需要有效的 JWT 访问令牌，且用户角色为 `speaker`。
+*   **请求体示例**:
+    ```json
+    {
+        "presentation_id": 1   // 演讲 ID，系统将使用该演讲的所有文件
+    }
+    ```
+*   **响应体示例 (成功)**:
+    ```json
+    {
+        "msg": "Successfully generated 5 questions based on 3 files",
+        "files_used": ["presentation.pdf", "notes.docx", "slides.pptx"],
+        "question_ids": [1, 2, 3, 4, 5]
+    }
+    ```
+*   **响应体示例 (失败 - 参数缺失)**:
+    ```json
+    {
+        "msg": "presentation_id is required"
+    }
+    ```
+*   **响应体示例 (失败 - 演讲未找到)**:
+    ```json
+    {
+        "msg": "Presentation not found"
+    }
+    ```
+*   **响应体示例 (失败 - 未授权演讲)**:
+    ```json
+    {
+        "msg": "You are not the speaker of this presentation"
+    }
+    ```
+*   **响应体示例 (失败 - 无文件)**:
+    ```json
+    {
+        "msg": "No files found for this presentation"
+    }
+    ```
+*   **响应体示例 (失败 - 无有效文本)**:
+    ```json
+    {
+        "msg": "No valid text content found in any of the files"
+    }
+    ```
+*   **响应体示例 (失败 - LLM API 未配置)**:
+    ```json
+    {
+        "msg": "LLM API URL or Key not configured"
     }
     ```
 *   **响应体示例 (失败 - LLM 生成失败)**:

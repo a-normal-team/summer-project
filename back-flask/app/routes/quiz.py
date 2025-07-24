@@ -568,3 +568,182 @@ def generate_questions():
     except Exception as e:
         current_app.logger.error(f"An unexpected error occurred: {e}")
         return jsonify({"msg": f"An unexpected error occurred: {str(e)}"}), 500
+
+
+@quiz_bp.route('/generate_questions_from_presentation', methods=['POST'])
+@jwt_required()
+@role_required('speaker') # Only speakers can generate questions
+def generate_questions_from_presentation():
+    """
+    基于演讲的所有已上传文件生成题目。
+    这个API不再需要指定单个文件ID，而是直接使用演讲ID来获取所有相关的文件。
+    """
+    data = request.get_json()
+    presentation_id = data.get('presentation_id')
+
+    if not presentation_id:
+        return jsonify({"msg": "presentation_id is required"}), 400
+
+    # Predefined prompt based on user requirements
+    prompt = "请根据提供的文本内容，生成高质量的单项选择题。每个问题应具有深度，字数不少于60字。每个选项的答案字数长度不少于20字。请确保每个问题只有一个正确答案。"
+
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    presentation = Presentation.query.get(presentation_id)
+    if not presentation:
+        return jsonify({"msg": "Presentation not found"}), 404
+    if presentation.speaker_id != int(current_user_id):
+        return jsonify({"msg": "You are not the speaker of this presentation"}), 403
+
+    # 获取与演讲相关联的所有文件
+    files = File.query.filter_by(presentation_id=presentation_id).all()
+    if not files:
+        return jsonify({"msg": "No files found for this presentation"}), 404
+
+    s3_client = current_app.config.get('S3_CLIENT')
+    s3_bucket_name = current_app.config.get('S3_BUCKET_NAME')
+    llm_api_url = current_app.config.get('LLM_API_URL')
+    deepseek_api_key = current_app.config.get('DEEPSEEK_API_KEY')
+
+    if not s3_client or not s3_bucket_name:
+        return jsonify({"msg": "S3/R2 storage not configured"}), 500
+    if not llm_api_url or not deepseek_api_key:
+        return jsonify({"msg": "LLM API URL or Key not configured"}), 500
+
+    try:
+        # Initialize OpenAI client with DeepSeek base URL
+        client = OpenAI(api_key=deepseek_api_key, base_url=llm_api_url)
+
+        # 合并所有文件的提取文本内容
+        all_extracted_text = []
+        file_names = []
+
+        for file_record in files:
+            if file_record.extracted_text_content:
+                all_extracted_text.append(file_record.extracted_text_content)
+                file_names.append(file_record.filename)
+            else:
+                current_app.logger.warning(f"File {file_record.filename} has no extracted text content")
+
+        if not all_extracted_text:
+            return jsonify({"msg": "No valid text content found in any of the files"}), 400
+
+        combined_text = "\n\n===== 文件分隔符 =====\n\n".join(all_extracted_text)
+        
+        current_app.logger.info(f"Combined text from {len(all_extracted_text)} files, total length: {len(combined_text)}")
+
+        # Step 1: Summarize the combined text using LLM
+        summary_system_prompt = "你是一个有用的助手，请对提供的多个文件的文本内容进行精简总结，提取核心要点，用于后续生成测验题目。总结应简洁明了，保留关键信息。"
+        summary_user_prompt = f"请总结以下来自多个文件的文本：\n\n{combined_text}"
+        
+        current_app.logger.info("Calling LLM API for summarization...")
+        summary_response = client.chat.completions.create(
+            model="deepseek-chat", # Specify the model
+            messages=[
+                {"role": "system", "content": summary_system_prompt},
+                {"role": "user", "content": summary_user_prompt},
+            ],
+            stream=False
+        )
+        summarized_text = summary_response.choices[0].message.content
+
+        current_app.logger.info(f"Summarized text length: {len(summarized_text)}")
+
+        # Step 2: Generate questions based on the summarized text and user's prompt
+        question_system_prompt = """你是一个专业的出题人，请根据提供的文本内容，生成高质量的单项选择题。
+每个问题应具有深度，字数不少于60字。
+每个选项的答案字数长度不少于20字。
+请确保每个问题只有一个正确答案。
+请严格以JSON数组的格式返回题目，每个题目对象包含 'question_text', 'question_type', 'options', 'correct_answer' 字段。
+例如：
+[
+  {
+    "question_text": "关于Python语言的特点，以下哪个描述是正确的？",
+    "question_type": "multiple_choice",
+    "options": ["Python是一种编译型语言，执行效率极高，不适合快速开发。", "Python是一种解释型语言，拥有丰富的第三方库，支持多种编程范式。", "Python主要用于系统级编程，对内存管理有严格要求，学习曲线陡峭。", "Python是一种强类型静态语言，变量类型在编译时确定，不具备动态特性。"],
+    "correct_answer": "Python是一种解释型语言，拥有丰富的第三方库，支持多种编程范式。"
+  }
+]
+"""
+        # 在提示中包含文件名列表，以便LLM了解数据来源
+        files_info = ", ".join(file_names)
+        question_user_prompt = f"请根据以下从文件（{files_info}）总结出的文本生成题目：\n\n{summarized_text}\n\n{prompt}"
+
+        current_app.logger.info("Calling LLM API for question generation...")
+        llm_response = client.chat.completions.create(
+            model="deepseek-chat", # Specify the model
+            messages=[
+                {"role": "system", "content": question_system_prompt},
+                {"role": "user", "content": question_user_prompt},
+            ],
+            stream=False
+        )
+        
+        llm_raw_content = llm_response.choices[0].message.content
+        current_app.logger.info(f"Raw LLM response content: {llm_raw_content}") # Log raw response for debugging
+
+        # Attempt to parse the content as JSON
+        try:
+            # Clean up potential markdown code blocks if LLM wraps JSON in them
+            if llm_raw_content.startswith("```json") and llm_raw_content.endswith("```"):
+                json_string = llm_raw_content[len("```json"):-len("```")].strip()
+            else:
+                json_string = llm_raw_content.strip()
+            
+            generated_questions_data = json.loads(json_string)
+        except json.JSONDecodeError as e:
+            current_app.logger.error(f"Failed to parse LLM response as JSON: {e}. Raw response: {llm_raw_content}")
+            return jsonify({"msg": f"Failed to parse LLM response: {str(e)}. Raw response might not be valid JSON."}), 500
+
+        new_questions = []
+        for q_data in generated_questions_data:
+            question_text = q_data.get('question_text')
+            question_type = q_data.get('question_type', 'multiple_choice')
+            options = q_data.get('options')
+            correct_answer = q_data.get('correct_answer')
+
+            if not question_text:
+                current_app.logger.warning("LLM returned a question without 'question_text'. Skipping.")
+                continue
+
+            new_question = Question(
+                presentation_id=presentation_id,
+                question_text=question_text,
+                question_type=question_type,
+                options=json.dumps(options) if options else None,
+                correct_answer=correct_answer,
+                is_active=True # 设置为活跃状态，这样生成后可以立即使用
+            )
+            db.session.add(new_question)
+            new_questions.append(new_question)
+
+        db.session.commit()
+
+        # 注释WebSocket相关代码 - 暂时不使用实时广播功能
+        # # 为每个生成的问题发送Socket.IO通知
+        # for question in new_questions:
+        #     question_data = {
+        #         "id": question.id,
+        #         "question_text": question.question_text,
+        #         "question_type": question.question_type,
+        #         "options": json.loads(question.options) if question.options else None,
+        #         "is_active": True  # 确保通知中也标记为活跃状态
+        #     }
+        #     socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
+
+        return jsonify({
+            "msg": f"Successfully generated {len(new_questions)} questions based on {len(all_extracted_text)} files",
+            "files_used": file_names,
+            "question_ids": [q.id for q in new_questions]
+        }), 201
+
+    except requests.exceptions.RequestException as e:
+        current_app.logger.error(f"Error calling LLM API: {e}")
+        return jsonify({"msg": f"Failed to generate questions from LLM: {str(e)}"}), 500
+    except ValueError as e: # For file extraction errors
+        current_app.logger.error(f"File extraction error: {e}")
+        return jsonify({"msg": f"File processing error: {str(e)}"}), 400
+    except Exception as e:
+        current_app.logger.error(f"An unexpected error occurred: {e}")
+        return jsonify({"msg": f"An unexpected error occurred: {str(e)}"}), 500
