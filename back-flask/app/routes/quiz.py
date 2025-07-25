@@ -4,6 +4,7 @@ from app.models import db, User, Question, Answer, Presentation, Role, File
 from app.utils import role_required, extract_text_from_file
 import json
 import requests
+import re  # 添加re库用于文本处理
 from app import socketio
 from flask_socketio import emit
 from openai import OpenAI # Import OpenAI
@@ -42,6 +43,17 @@ def create_question(presentation_id):
     )
     db.session.add(new_question)
     db.session.commit()
+    
+    # 使用WebSocket通知所有听众有新问题
+    question_data = {
+        "id": new_question.id,
+        "question_text": new_question.question_text,
+        "question_type": new_question.question_type,
+        "options": json.loads(new_question.options) if new_question.options else None,
+        "is_active": True
+    }
+    socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
+    
     return jsonify({"msg": "Question created successfully", "question_id": new_question.id}), 201
 
 # Get Active Question for a Presentation (Listener/Speaker)
@@ -178,12 +190,12 @@ def submit_answer(question_id):
     if is_correct is not None:
         response["is_correct"] = is_correct
     
-    # 注释WebSocket相关代码 - 暂时不使用实时广播功能
-    # # Emit answer update for real-time stats
-    # # Get updated stats for the question
-    # question_stats = _get_question_stats_data(question_id) # Call the helper function
-    # if question_stats: # Ensure stats were retrieved successfully
-    #     socketio.emit('question_stats_update', question_stats, room=f'presentation_{question.presentation_id}')
+    # 启用WebSocket实时广播功能
+    # Emit answer update for real-time stats
+    # Get updated stats for the question
+    question_stats = _get_question_stats_data(question_id) # Call the helper function
+    if question_stats: # Ensure stats were retrieved successfully
+        socketio.emit('question_stats_update', question_stats, room=f'presentation_{question.presentation_id}')
 
     return jsonify(response), 201
 
@@ -204,6 +216,13 @@ def deactivate_question(question_id):
 
     question.is_active = False
     db.session.commit()
+    
+    # 使用WebSocket通知所有听众问题已停用
+    socketio.emit('question_deactivated', {
+        "question_id": question.id,
+        "presentation_id": question.presentation_id
+    }, room=f'presentation_{question.presentation_id}')
+    
     return jsonify({"msg": "Question deactivated successfully"}), 200
 
 def _get_question_stats_data(question_id):
@@ -399,176 +418,10 @@ def get_overall_presentation_stats(presentation_id):
         "listener_performance": listener_performance
     }), 200
 
-@quiz_bp.route('/generate_questions', methods=['POST'])
-@jwt_required()
-@role_required('speaker') # Only speakers can generate questions
-def generate_questions():
-    data = request.get_json()
-    file_id = data.get('file_id')
-    presentation_id = data.get('presentation_id') # Assuming questions are linked to a presentation
 
-    if not file_id or not presentation_id:
-        return jsonify({"msg": "file_id and presentation_id are required"}), 400
 
-    # Predefined prompt based on user requirements
-    prompt = "请根据提供的文本内容，生成高质量的单项选择题。每个问题应具有深度，字数不少于60字。每个选项的答案字数长度不少于20字。请确保每个问题只有一个正确答案。"
 
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
-
-    file_record = File.query.get(file_id)
-    if not file_record:
-        return jsonify({"msg": "File not found"}), 404
-
-    # Ensure the speaker owns the file or the presentation it's linked to
-    if file_record.user_id != int(current_user_id):
-        # If file is linked to a presentation, check if speaker owns that presentation
-        if file_record.presentation_id and file_record.presentation.speaker_id == int(current_user_id):
-            pass # OK, speaker owns the presentation
-        else:
-            return jsonify({"msg": "Unauthorized to use this file"}), 403
-
-    presentation = Presentation.query.get(presentation_id)
-    if not presentation:
-        return jsonify({"msg": "Presentation not found"}), 404
-    if presentation.speaker_id != int(current_user_id):
-        return jsonify({"msg": "You are not the speaker of this presentation"}), 403
-
-    s3_client = current_app.config.get('S3_CLIENT')
-    s3_bucket_name = current_app.config.get('S3_BUCKET_NAME')
-    llm_api_url = current_app.config.get('LLM_API_URL')
-    deepseek_api_key = current_app.config.get('DEEPSEEK_API_KEY')
-
-    if not s3_client or not s3_bucket_name:
-        return jsonify({"msg": "S3/R2 storage not configured"}), 500
-    if not llm_api_url or not deepseek_api_key:
-        return jsonify({"msg": "LLM API URL or Key not configured"}), 500
-
-    try:
-        # Initialize OpenAI client with DeepSeek base URL
-        client = OpenAI(api_key=deepseek_api_key, base_url=llm_api_url)
-
-        # Download file content from S3
-        file_object = s3_client.get_object(Bucket=s3_bucket_name, Key=file_record.s3_key)
-        file_content_bytes = file_object['Body'].read()
-
-        # Use extracted_text_content from the database
-        extracted_text = file_record.extracted_text_content
-        if not extracted_text:
-            return jsonify({"msg": "No extracted text content found for this file"}), 400
-
-        # Step 1: Summarize the extracted text using LLM
-        summary_system_prompt = "你是一个有用的助手，请对提供的文本进行精简总结，提取核心要点，用于后续生成测验题目。总结应简洁明了，保留关键信息。"
-        summary_user_prompt = f"请总结以下文本：\n\n{extracted_text}"
-        
-        current_app.logger.info("Calling LLM API for summarization...")
-        summary_response = client.chat.completions.create(
-            model="deepseek-chat", # Specify the model
-            messages=[
-                {"role": "system", "content": summary_system_prompt},
-                {"role": "user", "content": summary_user_prompt},
-            ],
-            stream=False
-        )
-        summarized_text = summary_response.choices[0].message.content
-
-        current_app.logger.info(f"Summarized text length: {len(summarized_text)}")
-
-        # Step 2: Generate questions based on the summarized text and user's prompt
-        question_system_prompt = """你是一个专业的出题人，请根据提供的文本内容，生成高质量的单项选择题。
-每个问题应具有深度，字数不少于60字。
-每个选项的答案字数长度不少于20字。
-请确保每个问题只有一个正确答案。
-请严格以JSON数组的格式返回题目，每个题目对象包含 'question_text', 'question_type', 'options', 'correct_answer' 字段。
-例如：
-[
-  {
-    "question_text": "关于Python语言的特点，以下哪个描述是正确的？",
-    "question_type": "multiple_choice",
-    "options": ["Python是一种编译型语言，执行效率极高，不适合快速开发。", "Python是一种解释型语言，拥有丰富的第三方库，支持多种编程范式。", "Python主要用于系统级编程，对内存管理有严格要求，学习曲线陡峭。", "Python是一种强类型静态语言，变量类型在编译时确定，不具备动态特性。"],
-    "correct_answer": "Python是一种解释型语言，拥有丰富的第三方库，支持多种编程范式。"
-  }
-]
-"""
-        question_user_prompt = f"请根据以下总结文本生成题目：\n\n{summarized_text}\n\n{prompt}"
-
-        current_app.logger.info("Calling LLM API for question generation...")
-        llm_response = client.chat.completions.create(
-            model="deepseek-chat", # Specify the model
-            messages=[
-                {"role": "system", "content": question_system_prompt},
-                {"role": "user", "content": question_user_prompt},
-            ],
-            stream=False
-        )
-        
-        llm_raw_content = llm_response.choices[0].message.content
-        current_app.logger.info(f"Raw LLM response content: {llm_raw_content}") # Log raw response for debugging
-
-        # Attempt to parse the content as JSON
-        try:
-            # Clean up potential markdown code blocks if LLM wraps JSON in them
-            if llm_raw_content.startswith("```json") and llm_raw_content.endswith("```"):
-                json_string = llm_raw_content[len("```json"):-len("```")].strip()
-            else:
-                json_string = llm_raw_content.strip()
-            
-            generated_questions_data = json.loads(json_string)
-        except json.JSONDecodeError as e:
-            current_app.logger.error(f"Failed to parse LLM response as JSON: {e}. Raw response: {llm_raw_content}")
-            return jsonify({"msg": f"Failed to parse LLM response: {str(e)}. Raw response might not be valid JSON."}), 500
-
-        new_questions = []
-        for q_data in generated_questions_data:
-            question_text = q_data.get('question_text')
-            question_type = q_data.get('question_type', 'multiple_choice')
-            options = q_data.get('options')
-            correct_answer = q_data.get('correct_answer')
-
-            if not question_text:
-                current_app.logger.warning("LLM returned a question without 'question_text'. Skipping.")
-                continue
-
-            new_question = Question(
-                presentation_id=presentation_id,
-                question_text=question_text,
-                question_type=question_type,
-                options=json.dumps(options) if options else None,
-                correct_answer=correct_answer,
-                is_active=True # 设置为活跃状态，这样生成后可以立即使用
-            )
-            db.session.add(new_question) # Move inside the loop
-            new_questions.append(new_question) # Move inside the loop
-
-        db.session.commit()
-
-        # 注释WebSocket相关代码 - 暂时不使用实时广播功能
-        # # 为每个生成的问题发送Socket.IO通知
-        # for question in new_questions:
-        #     question_data = {
-        #         "id": question.id,
-        #         "question_text": question.question_text,
-        #         "question_type": question.question_type,
-        #         "options": json.loads(question.options) if question.options else None,
-        #         "is_active": True  # 确保通知中也标记为活跃状态
-        #     }
-        #     socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
-
-        return jsonify({
-            "msg": f"Successfully generated {len(new_questions)} questions",
-            "question_ids": [q.id for q in new_questions]
-        }), 201
-
-    except requests.exceptions.RequestException as e:
-        current_app.logger.error(f"Error calling LLM API: {e}")
-        return jsonify({"msg": f"Failed to generate questions from LLM: {str(e)}"}), 500
-    except ValueError as e: # For file extraction errors
-        current_app.logger.error(f"File extraction error: {e}")
-        return jsonify({"msg": f"File processing error: {str(e)}"}), 400
-    except Exception as e:
-        current_app.logger.error(f"An unexpected error occurred: {e}")
-        return jsonify({"msg": f"An unexpected error occurred: {str(e)}"}), 500
-
+# 不再需要缓存清除端点
 
 @quiz_bp.route('/generate_questions_from_presentation', methods=['POST'])
 @jwt_required()
@@ -584,8 +437,8 @@ def generate_questions_from_presentation():
     if not presentation_id:
         return jsonify({"msg": "presentation_id is required"}), 400
 
-    # Predefined prompt based on user requirements
-    prompt = "请根据提供的文本内容，生成高质量的单项选择题。每个问题应具有深度，字数不少于60字。每个选项的答案字数长度不少于20字。请确保每个问题只有一个正确答案。"
+    # Predefined prompt based on user requirements (优化以加速生成)
+    prompt = "请根据提供的文本内容，快速生成5个单项选择题。每个问题简明扼要，字数控制在60字左右。每个选项简洁明确，控制在20字左右。确保每个问题只有一个正确答案。严格控制题目数量为5个。"
 
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
@@ -615,13 +468,47 @@ def generate_questions_from_presentation():
         # Initialize OpenAI client with DeepSeek base URL
         client = OpenAI(api_key=deepseek_api_key, base_url=llm_api_url)
 
-        # 合并所有文件的提取文本内容
+        # 智能处理和合并文件的文本内容
         all_extracted_text = []
         file_names = []
-
+        max_chars_per_file = 5000  # 每个文件最多取5000个字符
+        max_total_chars = 15000    # 总文本最多15000个字符
+        
+        # 提取关键信息的函数
+        def extract_key_content(text, max_length=5000):
+            # 移除多余的空白行和空格
+            text = re.sub(r'\n\s*\n', '\n\n', text)
+            text = re.sub(r' +', ' ', text)
+            
+            # 查找并保留包含重要信息的段落
+            important_keywords = [
+                "概念", "定义", "结论", "总结", "关键", "重要", "核心",
+                "特点", "特性", "原理", "方法", "技术", "流程", "步骤"
+            ]
+            
+            paragraphs = re.split(r'\n\s*\n', text)
+            key_paragraphs = []
+            
+            for para in paragraphs:
+                if any(keyword in para for keyword in important_keywords):
+                    key_paragraphs.append(para)
+            
+            # 如果找到了关键段落，使用它们
+            if key_paragraphs:
+                extracted = "\n\n".join(key_paragraphs)
+                # 如果提取的关键段落仍然太长，进行截断
+                if len(extracted) > max_length:
+                    return extracted[:max_length]
+                return extracted
+            
+            # 如果没找到关键段落，直接截断
+            return text[:max_length]
+        
         for file_record in files:
             if file_record.extracted_text_content:
-                all_extracted_text.append(file_record.extracted_text_content)
+                # 智能提取关键内容
+                processed_text = extract_key_content(file_record.extracted_text_content, max_chars_per_file)
+                all_extracted_text.append(processed_text)
                 file_names.append(file_record.filename)
             else:
                 current_app.logger.warning(f"File {file_record.filename} has no extracted text content")
@@ -631,52 +518,46 @@ def generate_questions_from_presentation():
 
         combined_text = "\n\n===== 文件分隔符 =====\n\n".join(all_extracted_text)
         
+        # 如果合并后的文本太长，进一步截取
+        if len(combined_text) > max_total_chars:
+            combined_text = combined_text[:max_total_chars]
+            current_app.logger.info(f"Combined text was truncated to {max_total_chars} characters")
+        
         current_app.logger.info(f"Combined text from {len(all_extracted_text)} files, total length: {len(combined_text)}")
 
-        # Step 1: Summarize the combined text using LLM
-        summary_system_prompt = "你是一个有用的助手，请对提供的多个文件的文本内容进行精简总结，提取核心要点，用于后续生成测验题目。总结应简洁明了，保留关键信息。"
-        summary_user_prompt = f"请总结以下来自多个文件的文本：\n\n{combined_text}"
-        
-        current_app.logger.info("Calling LLM API for summarization...")
-        summary_response = client.chat.completions.create(
-            model="deepseek-chat", # Specify the model
-            messages=[
-                {"role": "system", "content": summary_system_prompt},
-                {"role": "user", "content": summary_user_prompt},
-            ],
-            stream=False
-        )
-        summarized_text = summary_response.choices[0].message.content
-
-        current_app.logger.info(f"Summarized text length: {len(summarized_text)}")
-
-        # Step 2: Generate questions based on the summarized text and user's prompt
-        question_system_prompt = """你是一个专业的出题人，请根据提供的文本内容，生成高质量的单项选择题。
-每个问题应具有深度，字数不少于60字。
-每个选项的答案字数长度不少于20字。
+        # 直接从合并的文本生成问题，不再进行总结步骤
+        question_system_prompt = """你是一个高效专业的出题人，请根据提供的文本内容，快速生成5个单项选择题。
+每个问题有一定深度，严格要求字数不得少于60字。
+每个选项应需要一定思考，严格要求字数不得少于20字。
 请确保每个问题只有一个正确答案。
-请严格以JSON数组的格式返回题目，每个题目对象包含 'question_text', 'question_type', 'options', 'correct_answer' 字段。
+请严格控制生成的题目数量为5个，不多不少。
+请立即以JSON数组格式返回题目，每个题目对象包含 'question_text', 'question_type', 'options', 'correct_answer' 字段。
+速度优先，但是请严格满足要求，尽快完成。
 例如：
 [
   {
     "question_text": "关于Python语言的特点，以下哪个描述是正确的？",
     "question_type": "multiple_choice",
-    "options": ["Python是一种编译型语言，执行效率极高，不适合快速开发。", "Python是一种解释型语言，拥有丰富的第三方库，支持多种编程范式。", "Python主要用于系统级编程，对内存管理有严格要求，学习曲线陡峭。", "Python是一种强类型静态语言，变量类型在编译时确定，不具备动态特性。"],
-    "correct_answer": "Python是一种解释型语言，拥有丰富的第三方库，支持多种编程范式。"
+    "options": ["Python是编译型语言，执行效率高。", "Python是解释型语言，有丰富的第三方库。", "Python主要用于系统级编程。", "Python是强类型静态语言。"],
+    "correct_answer": "Python是解释型语言，有丰富的第三方库。"
   }
 ]
 """
         # 在提示中包含文件名列表，以便LLM了解数据来源
         files_info = ", ".join(file_names)
-        question_user_prompt = f"请根据以下从文件（{files_info}）总结出的文本生成题目：\n\n{summarized_text}\n\n{prompt}"
+        question_user_prompt = f"请根据以下来自文件（{files_info}）的文本内容生成题目：\n\n{combined_text}\n\n{prompt}"
 
         current_app.logger.info("Calling LLM API for question generation...")
+        
+        # 直接调用API，不使用缓存
         llm_response = client.chat.completions.create(
             model="deepseek-chat", # Specify the model
             messages=[
                 {"role": "system", "content": question_system_prompt},
                 {"role": "user", "content": question_user_prompt},
             ],
+            temperature=0.1,  # 进一步降低温度以提高速度和确定性
+            max_tokens=1500,  # 进一步减少生成的令牌数量
             stream=False
         )
         
@@ -720,17 +601,19 @@ def generate_questions_from_presentation():
 
         db.session.commit()
 
-        # 注释WebSocket相关代码 - 暂时不使用实时广播功能
-        # # 为每个生成的问题发送Socket.IO通知
-        # for question in new_questions:
-        #     question_data = {
-        #         "id": question.id,
-        #         "question_text": question.question_text,
-        #         "question_type": question.question_type,
-        #         "options": json.loads(question.options) if question.options else None,
-        #         "is_active": True  # 确保通知中也标记为活跃状态
-        #     }
-        #     socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
+        # 不再使用缓存存储问题
+
+        # 启用WebSocket实时广播功能
+        # 为每个生成的问题发送Socket.IO通知
+        for question in new_questions:
+            question_data = {
+                "id": question.id,
+                "question_text": question.question_text,
+                "question_type": question.question_type,
+                "options": json.loads(question.options) if question.options else None,
+                "is_active": True  # 确保通知中也标记为活跃状态
+            }
+            socketio.emit('new_question', question_data, room=f'presentation_{presentation_id}')
 
         return jsonify({
             "msg": f"Successfully generated {len(new_questions)} questions based on {len(all_extracted_text)} files",

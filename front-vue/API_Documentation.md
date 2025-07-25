@@ -2,7 +2,7 @@
 
 本文档详细描述了 AI Pop Quiz 后端应用提供的 RESTful API 接口。
 
-**基础 URL**: `http://127.0.0.1:5000/api`
+**基础 URL**: `http://127.0.0.1:8080/api`
 
 ## 认证 (Auth)
 
@@ -647,7 +647,7 @@
 *   **请求体示例 (使用 curl)**:
     ```bash
     curl -X POST \
-      http://localhost:5000/api/files/upload \
+      http://localhost:8080/api/files/upload \
       -H "Authorization: Bearer <YOUR_SPEAKER_JWT_TOKEN>" \
       -F "file=@/path/to/your/file.pdf" \
       -F "presentation_id=1" # Optional, if linking to a presentation

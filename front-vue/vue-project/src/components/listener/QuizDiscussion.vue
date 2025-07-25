@@ -16,7 +16,13 @@
     </div>
     
     <div v-else class="questions-list">
-      <div v-for="question in questions" :key="question.id" class="question-card">
+      <div 
+        v-for="question in questions" 
+        :key="question.id" 
+        class="question-card"
+        :data-question-id="question.id"
+        :class="{'current-question': currentQuestionId === question.id}"
+      >
         <div class="question-header">
           <h3>{{ question.question_text }}</h3>
           <span class="question-status" :class="question.is_active ? 'active' : 'inactive'">
@@ -161,6 +167,8 @@ const presentationId = computed(() => route.params.id || selectedPresentationId.
 const questions = ref([]);
 const loading = ref(true);
 const error = ref('');
+// 添加当前活跃问题的ID引用，用于记住用户当前查看的问题
+const currentQuestionId = ref(null);
 // 使用函数从localStorage加载数据，确保数据持久化
 const loadSelectedAnswers = () => {
   const savedAnswers = localStorage.getItem(`quiz_selected_answers_${presentationId.value}`);
@@ -359,6 +367,13 @@ const fetchPresentationQuestions = async () => {
     // 如果问题列表为空，可以在这里设置一个提示信息
     if (questions.value.length === 0) {
       console.log('当前演讲暂无测验题目');
+    } else {
+      // 在问题加载完成后，如果有记录的问题ID，则滚动到该问题
+      setTimeout(() => {
+        if (currentQuestionId.value) {
+          scrollToQuestion(currentQuestionId.value);
+        }
+      }, 300);
     }
     
   } catch (err) {
@@ -484,6 +499,10 @@ const submitComment = async (questionId, commentData) => {
 
 // 切换讨论区显示状态
 const toggleDiscussion = async (question) => {
+  // 记录当前查看的问题ID
+  currentQuestionId.value = question.id;
+  localStorage.setItem(`last_viewed_question_${presentationId.value}`, question.id);
+  
   question.showDiscussion = !question.showDiscussion;
   
   // 首次显示讨论区时加载评论
@@ -499,6 +518,10 @@ const getOptionLabel = (index) => {
 
 // 用户选择答案选项
 const selectAnswer = (questionId, optionIndex) => {
+  // 记录当前交互的问题ID
+  currentQuestionId.value = questionId;
+  localStorage.setItem(`last_viewed_question_${presentationId.value}`, questionId);
+  
   selectedAnswers.value = {
     ...selectedAnswers.value,
     [questionId]: optionIndex
@@ -510,6 +533,9 @@ const selectAnswer = (questionId, optionIndex) => {
 // 提交问题答案
 const submitQuestionAnswer = async (question) => {
   if (!question || !question.is_active) return;
+  
+  // 保存当前问题ID，用于后续恢复位置
+  currentQuestionId.value = question.id;
   
   const selectedOption = selectedAnswers.value[question.id];
   // 如果用户未选择任何选项
@@ -561,10 +587,10 @@ const submitQuestionAnswer = async (question) => {
       
       console.log(`题目(ID: ${question.id})答案已提交并保存到本地存储`);
       
-      // 重新获取题目状态，因为回答后可能状态会变化
+      // 使用局部更新方式替代全局刷新
       setTimeout(() => {
-        fetchPresentationQuestions();
-      }, 2000);
+        updateQuestionStatus(question.id);
+      }, 1000);
     } else if (result && result.msg === "You have already submitted an answer for this question") {
       // 处理重复提交的情况
       console.log(`题目(ID: ${question.id})已经回答过，更新本地状态`);
@@ -586,9 +612,9 @@ const submitQuestionAnswer = async (question) => {
       localStorage.setItem(`quiz_answer_results_${presentationId.value}`, 
                          JSON.stringify(answerResults.value));
       
-      // 重新获取最新状态
+      // 使用局部更新方式替代全局刷新
       setTimeout(() => {
-        fetchPresentationQuestions();
+        updateQuestionStatus(question.id);
       }, 1000);
     } else {
       // 其他错误情况
@@ -626,6 +652,48 @@ const submitQuestionAnswer = async (question) => {
                        JSON.stringify(answerResults.value));
   } finally {
     submittingAnswer.value = false;
+  }
+};
+
+// 新增方法：只更新单个问题状态，而不是全部重新获取
+const updateQuestionStatus = async (questionId) => {
+  try {
+    // 查找问题在列表中的索引
+    const questionIndex = questions.value.findIndex(q => q.id === questionId);
+    if (questionIndex === -1) return;
+    
+    // 获取这个特定问题的最新状态
+    const response = await getActiveQuestion(presentationId.value, questionId);
+    
+    // 如果能获取到最新状态，则更新
+    if (response && !response.msg) {
+      const updatedQuestion = response;
+      
+      // 保留现有的UI状态属性
+      updatedQuestion.showDiscussion = questions.value[questionIndex].showDiscussion;
+      updatedQuestion.comments = questions.value[questionIndex].comments || [];
+      updatedQuestion.loadingComments = false;
+      
+      // 确保问题标记为已回答
+      updatedQuestion.hasAnswered = true;
+      updatedQuestion.is_active = response.is_active !== undefined ? response.is_active : questions.value[questionIndex].is_active;
+      
+      // 更新问题
+      questions.value.splice(questionIndex, 1, updatedQuestion);
+      console.log(`题目(ID: ${questionId})状态已更新`);
+      
+      // 如果问题已经不再活跃，可能需要重新获取评论
+      if (!updatedQuestion.is_active && updatedQuestion.showDiscussion) {
+        fetchQuestionComments(updatedQuestion);
+      }
+    } else {
+      console.log(`无法获取题目(ID: ${questionId})的最新状态，保持当前状态`);
+    }
+    
+    // 滚动到当前问题位置
+    scrollToQuestion(questionId);
+  } catch (err) {
+    console.error(`更新题目(ID: ${questionId})状态失败:`, err);
   }
 };
 
@@ -716,12 +784,39 @@ watch(() => presentationId.value, (newPresentationId, oldPresentationId) => {
   }
 });
 
+// 滚动到指定问题位置的方法
+const scrollToQuestion = (questionId) => {
+  if (!questionId) return;
+  
+  // 等待DOM更新后执行滚动
+  setTimeout(() => {
+    try {
+      const questionElement = document.querySelector(`.question-card[data-question-id="${questionId}"]`);
+      if (questionElement) {
+        // 滚动到问题位置，加一点偏移量以获得更好的视觉体验
+        questionElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        console.log(`滚动到题目位置(ID: ${questionId})`);
+      } else {
+        console.warn(`找不到题目元素(ID: ${questionId})`);
+      }
+    } catch (err) {
+      console.error('滚动到题目位置时出错:', err);
+    }
+  }, 100);
+};
+
 // 组件挂载后获取题目
 onMounted(() => {
   if (presentationId.value) {
     reloadSavedAnswersAndResults(presentationId.value);
   }
   fetchPresentationQuestions();
+  
+  // 从localStorage恢复上次查看的问题ID
+  const lastViewedQuestionId = localStorage.getItem(`last_viewed_question_${presentationId.value}`);
+  if (lastViewedQuestionId) {
+    currentQuestionId.value = parseInt(lastViewedQuestionId);
+  }
 });
 </script>
 
@@ -767,6 +862,13 @@ onMounted(() => {
   overflow: hidden;
   width: 100%; /* 确保卡片占据容器的全部宽度 */
   border-left: 4px solid #4dc189; /* 添加绿色边框，与其他页面保持一致 */
+  transition: all 0.3s ease;
+}
+
+/* 当前问题高亮样式 */
+.question-card.current-question {
+  box-shadow: 0 0 0 2px #4dc189, 0 4px 12px rgba(77, 193, 137, 0.2);
+  transform: translateY(-2px);
 }
 
 .question-header {

@@ -34,6 +34,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { getPresentations } from '../../services/presentation';
 import { authState, getUserId, getUsername, debugAuthState } from '../../services/auth';
+import { initWebSocket, registerMessageHandler } from '../../services/websocket';
 
 const router = useRouter();
 const presentations = ref([]);
@@ -43,14 +44,23 @@ const error = ref(null);
 
 // 页面加载时从API获取演讲列表
 onMounted(async () => {
+  console.log('[调试] MyPresentations.vue onMounted 页面激活');
   // 从localStorage获取已选择的演讲ID
   const storedSelectedId = localStorage.getItem('selectedPresentationId');
   if (storedSelectedId) {
     selectedPresentationId.value = parseInt(storedSelectedId);
   }
-  
+
+  // 注册 receive_feedback 事件处理函数
+  registerMessageHandler('receive_feedback', (data) => {
+    console.log('registerMessageHandler触发', data);
+    window.alert(`收到反馈: ${data.feedbackType} 来自: ${data.username}`);
+  });
+
   await fetchPresentations();
 });
+
+
 
 // 获取演讲列表
 const fetchPresentations = async () => {
@@ -158,6 +168,7 @@ const fetchPresentations = async () => {
 
 // 选择演讲
 const selectPresentation = (presentation) => {
+  window.alert(`选择演讲: ${presentation.title}`);
   if (selectedPresentationId.value === presentation.id) {
     // 如果已经选择了这个演讲，则取消选择
     selectedPresentationId.value = null;
@@ -166,6 +177,8 @@ const selectPresentation = (presentation) => {
     // 选择这个演讲
     selectedPresentationId.value = presentation.id;
     localStorage.setItem('selectedPresentationId', presentation.id);
+    // speaker 选择演讲时建立 websocket 连接
+    initWebSocket(presentation.id, 'speaker');
   }
 };
 

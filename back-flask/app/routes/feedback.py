@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import db, User, Feedback, Presentation
 from app.utils import role_required # Import role_required from utils
+from app import socketio
 
 feedback_bp = Blueprint('feedback', __name__)
 
@@ -25,14 +26,36 @@ def submit_feedback(presentation_id):
     if listener not in presentation.listeners:
         return jsonify({"msg": "You are not a listener for this presentation"}), 403
 
+    content = data.get('content', '')  # 获取可选的详细反馈内容
+    
     new_feedback = Feedback(
         presentation_id=presentation_id,
         user_id=int(current_user_id),
-        feedback_type=feedback_type
+        feedback_type=feedback_type,
+        content=content
     )
     db.session.add(new_feedback)
     db.session.commit()
-    return jsonify({"msg": "Feedback submitted successfully", "feedback_id": new_feedback.id}), 201
+    
+    # 获取用户信息用于通知
+    username = listener.username
+    
+    # 通过WebSocket通知演讲者有新的反馈
+    feedback_data = {
+        "id": new_feedback.id,
+        "feedbackType": feedback_type,
+        "content": content,
+        "timestamp": new_feedback.timestamp.isoformat() if new_feedback.timestamp else None,
+        "user_id": int(current_user_id),
+        "username": username
+    }
+    
+    socketio.emit('receive_feedback', feedback_data, room=f'presentation_{presentation_id}')
+    
+    return jsonify({
+        "msg": "Feedback submitted successfully", 
+        "feedback_id": new_feedback.id
+    }), 201
 
 # Get Feedback Statistics for a Presentation (Speaker/Organizer)
 @feedback_bp.route('/presentations/<int:presentation_id>/stats', methods=['GET'])

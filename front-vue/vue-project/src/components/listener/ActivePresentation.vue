@@ -24,19 +24,9 @@
         <p>状态: {{ getStatusText(presentationDetails?.status) }}</p>
       </div>
       
-      <!-- 即时反馈 -->
+      <!-- 即时反馈面板 -->
       <div class="content-section">
-        <h3>即时反馈</h3>
-        <div class="feedback-section">
-          <button 
-            v-for="(feedbackType, index) in feedbackTypes" 
-            :key="index" 
-            @click="submitFeedback(feedbackType.value)"
-            class="manage-button"
-          >
-            {{ feedbackType.label }}
-          </button>
-        </div>
+        <FeedbackPanel @feedback="handleFeedback" />
       </div>
       
       <!-- 提示前往题目页面 -->
@@ -51,8 +41,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, onBeforeUnmount } from 'vue';
 import { getPresentationById } from '../../services/presentation';
+import { initWebSocket, closeWebSocket, sendFeedback } from '../../services/websocket';
+import FeedbackPanel from './FeedbackPanel.vue';
 
 // 状态变量
 const selectedPresentationId = ref(null);
@@ -60,15 +52,9 @@ const presentationDetails = ref(null);
 const loading = ref(false);
 const error = ref(null);
 
-// 反馈类型
-const feedbackTypes = [
-  { label: '讲得太快', value: 'too_fast' },
-  { label: '讲得太慢', value: 'too_slow' },
-  { label: '内容乏味', value: 'boring' },
-  { label: '题目质量差', value: 'bad_question' }
-];
+// 反馈处理已移至FeedbackPanel组件中
 
-// 页面加载时获取已选择的演讲信息
+// 页面加载时获取已选择的演讲信息并初始化Socket.IO连接
 onMounted(() => {
   const storedPresentation = localStorage.getItem('selectedPresentation');
   if (storedPresentation) {
@@ -76,10 +62,40 @@ onMounted(() => {
       const parsedPresentation = JSON.parse(storedPresentation);
       selectedPresentationId.value = parsedPresentation.id;
       fetchPresentationDetails();
+      
+      // 初始化Socket.IO连接
+      initWebSocket(parsedPresentation.id, 'listener');
+      
+      // 注册反馈结果处理函数
+      registerMessageHandler('feedback_result', (data) => {
+        console.log('收到反馈结果:', data);
+        
+        // 显示服务器返回的结果
+        const feedbackResultMessage = document.createElement('div');
+        feedbackResultMessage.textContent = data.message || '反馈已处理';
+        feedbackResultMessage.className = `feedback-toast ${data.success ? 'success' : 'error'}`;
+        document.body.appendChild(feedbackResultMessage);
+        
+        // 2秒后自动移除提示
+        setTimeout(() => {
+          feedbackResultMessage.classList.add('fade-out');
+          setTimeout(() => {
+            if (document.body.contains(feedbackResultMessage)) {
+              document.body.removeChild(feedbackResultMessage);
+            }
+          }, 300);
+        }, 2000);
+      });
+      
     } catch (err) {
       console.error('Error parsing selected presentation:', err);
     }
   }
+});
+
+// 组件卸载前关闭WebSocket连接
+onBeforeUnmount(() => {
+  closeWebSocket();
 });
 
 // 监听选中的演讲ID变化
@@ -175,17 +191,50 @@ const submitAnswer = async () => {
   }
 };
 
-// 提交反馈
-const submitFeedback = async (feedbackType) => {
+// 处理从FeedbackPanel接收的反馈
+const handleFeedback = async (feedback) => {
   try {
-    // 这里应该调用API提交反馈
-    console.log(`提交反馈: ${feedbackType}`);
+    // 通过Socket.IO发送反馈
+    const success = sendFeedback(selectedPresentationId.value, feedback.type);
     
-    // 模拟提交成功
-    alert('反馈已提交');
+    if (success) {
+      console.log(`已通过Socket.IO发送反馈:`, feedback);
+      // 显示成功提示，但使用更友好的非阻塞方式
+      const feedbackMessage = document.createElement('div');
+      feedbackMessage.textContent = '反馈已发送';
+      feedbackMessage.className = 'feedback-toast success';
+      document.body.appendChild(feedbackMessage);
+      
+      // 2秒后自动移除提示
+      setTimeout(() => {
+        feedbackMessage.classList.add('fade-out');
+        setTimeout(() => {
+          if (document.body.contains(feedbackMessage)) {
+            document.body.removeChild(feedbackMessage);
+          }
+        }, 300);
+      }, 2000);
+    } else {
+      throw new Error('发送反馈失败，请稍后再试');
+    }
   } catch (err) {
     console.error('提交反馈失败:', err);
-    alert('提交反馈失败: ' + (err.message || '未知错误'));
+    
+    // 显示错误提示，使用非阻塞方式
+    const errorMessage = document.createElement('div');
+    errorMessage.textContent = '提交反馈失败: ' + (err.message || '未知错误');
+    errorMessage.className = 'feedback-toast error';
+    document.body.appendChild(errorMessage);
+    
+    // 3秒后自动移除提示
+    setTimeout(() => {
+      errorMessage.classList.add('fade-out');
+      setTimeout(() => {
+        if (document.body.contains(errorMessage)) {
+          document.body.removeChild(errorMessage);
+        }
+      }, 300);
+    }, 3000);
   }
 };
 
@@ -517,5 +566,34 @@ h3 {
   min-height: 60px;
   margin-bottom: 10px;
   resize: vertical;
+}
+
+/* 反馈提示样式 */
+.feedback-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.feedback-toast.success {
+  background-color: #4dc189;
+  color: white;
+}
+
+.feedback-toast.error {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.feedback-toast.fade-out {
+  opacity: 0;
+  transform: translateX(-50%) translateY(10px);
 }
 </style>

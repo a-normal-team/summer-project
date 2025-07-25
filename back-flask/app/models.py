@@ -72,6 +72,7 @@ class Feedback(db.Model):
     presentation_id = db.Column(db.Integer, db.ForeignKey('presentation.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     feedback_type = db.Column(db.String(100), nullable=False) # e.g., 'too_fast', 'too_slow', 'boring', 'bad_question'
+    content = db.Column(db.Text, nullable=True) # 添加反馈内容字段，可选
     timestamp = db.Column(db.DateTime, server_default=db.func.now())
 
     presentation = db.relationship('Presentation', backref=db.backref('feedbacks', lazy=True))

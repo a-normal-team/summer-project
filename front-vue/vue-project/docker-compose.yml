@@ -8,7 +8,7 @@ services:
     ports:
       - "8080:80"
     environment:
-      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://api:5000/api}
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://api:8080/api}
     # 如果有后端API服务，可以取消注释下面的部分
     # depends_on:
     #   - api
@@ -17,7 +17,7 @@ services:
   # api:
   #   image: your-backend-image
   #   ports:
-  #     - "5000:5000"
+  #     - "8080:8080"
   #   volumes:
   #     - api-data:/data
   #   environment:
